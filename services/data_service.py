@@ -19,12 +19,59 @@ class DataValidationError(ValueError):
     pass
 
 
+def _parse_numeric_epoch(numeric: pd.Series) -> pd.Series:
+    result = pd.Series(pd.NaT, index=numeric.index, dtype='datetime64[ns, UTC]')
+    valid = numeric.notna()
+    if not valid.any():
+        return result
+
+    abs_values = numeric[valid].abs()
+    masks = {
+        'ns': abs_values >= 1e18,
+        'us': (abs_values >= 1e15) & (abs_values < 1e18),
+        'ms': (abs_values >= 1e12) & (abs_values < 1e15),
+        's': abs_values < 1e12,
+    }
+    for unit, mask in masks.items():
+        if mask.any():
+            idx = mask.index[mask]
+            result.loc[idx] = pd.to_datetime(numeric.loc[idx], unit=unit, utc=True, errors='coerce')
+    return result
+
+
+def _coerce_ts_to_utc_series(value: pd.Series) -> pd.Series:
+    series = value.copy()
+
+    if pd.api.types.is_numeric_dtype(series):
+        numeric = pd.to_numeric(series, errors='coerce')
+        return _parse_numeric_epoch(numeric)
+
+    stripped = series.astype(str).str.strip()
+    numeric_mask = stripped.str.fullmatch(r'[+-]?\d+(\.\d+)?').fillna(False)
+    result = pd.Series(pd.NaT, index=series.index, dtype='datetime64[ns, UTC]')
+
+    if numeric_mask.any():
+        numeric = pd.to_numeric(stripped[numeric_mask], errors='coerce')
+        result.loc[numeric_mask] = _parse_numeric_epoch(numeric)
+
+    if (~numeric_mask).any():
+        result.loc[~numeric_mask] = pd.to_datetime(stripped[~numeric_mask], utc=True, errors='coerce')
+
+    return result
+
+
 def _normalize_ts(value: pd.Series) -> pd.Series:
-    if pd.api.types.is_numeric_dtype(value):
-        ts = pd.to_datetime(value, unit='ms', utc=True)
-    else:
-        ts = pd.to_datetime(value, utc=True)
+    ts = _coerce_ts_to_utc_series(value)
     return ts.dt.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def _to_utc_iso(value) -> str:
+    ts = pd.Timestamp(value)
+    if ts.tzinfo is None:
+        ts = ts.tz_localize('UTC')
+    else:
+        ts = ts.tz_convert('UTC')
+    return ts.strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
 def normalize_candles(df: pd.DataFrame, symbol: str, interval: str, source: str) -> pd.DataFrame:
@@ -126,7 +173,7 @@ def load_candles(symbols: Iterable[str], interval: str = '5') -> pd.DataFrame:
         df = pd.read_sql_query(query, conn, params=params)
     if df.empty:
         return df
-    df['ts'] = pd.to_datetime(df['ts'], utc=True)
+    df['ts'] = _coerce_ts_to_utc_series(df['ts'])
     return df
 
 
@@ -145,7 +192,7 @@ def load_funding(symbols: Iterable[str]) -> pd.DataFrame:
         df = pd.read_sql_query(query, conn, params=symbols)
     if df.empty:
         return df
-    df['ts'] = pd.to_datetime(df['ts'], utc=True)
+    df['ts'] = _coerce_ts_to_utc_series(df['ts'])
     return df
 
 
@@ -288,7 +335,7 @@ def sync_bybit_public(symbols: list[str], interval: str = '5', days: int = 14) -
         if all_rows:
             kline_df = pd.DataFrame(all_rows, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'turnover'])
             candles = normalize_candles(kline_df, symbol=symbol, interval=interval, source='bybit-public-api')
-            candles = candles[candles['ts'] >= pd.Timestamp(start, tz='UTC').strftime('%Y-%m-%dT%H:%M:%SZ')]
+            candles = candles[candles['ts'] >= _to_utc_iso(start)]
             total_candles += upsert_candles(candles)
 
         funding_rows: list[dict] = []
@@ -308,7 +355,7 @@ def sync_bybit_public(symbols: list[str], interval: str = '5', days: int = 14) -
                 'funding_rate': [row['fundingRate'] for row in funding_rows],
             })
             funding = normalize_funding(funding_df, symbol=symbol, source='bybit-public-api')
-            funding = funding[funding['ts'] >= pd.Timestamp(start, tz='UTC').strftime('%Y-%m-%dT%H:%M:%SZ')]
+            funding = funding[funding['ts'] >= _to_utc_iso(start)]
             total_funding += upsert_funding(funding)
 
     return {
