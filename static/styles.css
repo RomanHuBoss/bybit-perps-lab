@@ -283,11 +283,16 @@ button.danger:hover {
 
 .multi-select-toggle {
   width: 100%;
-  min-height: 44px;
+  min-height: 58px;
   text-align: left;
-  padding-right: 40px;
+  padding: 10px 42px 10px 12px;
   position: relative;
-  background: rgba(255,255,255,0.02);
+  background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.02));
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  overflow: hidden;
 }
 
 .multi-select-toggle::after {
@@ -297,29 +302,63 @@ button.danger:hover {
   top: 50%;
   transform: translateY(-50%);
   color: var(--muted);
+  font-size: 12px;
+  pointer-events: none;
 }
 
 .multi-select.open .multi-select-toggle {
   border-color: rgba(108,164,255,0.55);
+  box-shadow: 0 0 0 2px rgba(108,164,255,0.14);
+}
+
+.picker-toggle-label {
+  display: block;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--muted);
+}
+
+.picker-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.picker-toggle-row.single {
+  display: block;
 }
 
 .picker-toggle-title {
   display: block;
   font-weight: 600;
   line-height: 1.2;
-  max-width: calc(100% - 10px);
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.picker-toggle-subtitle {
+.picker-toggle-badge {
+  flex: 0 0 auto;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(108,164,255,0.16);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.picker-toggle-preview {
   display: block;
-  margin-top: 4px;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.2;
-  max-width: calc(100% - 10px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -330,7 +369,8 @@ button.danger:hover {
   z-index: 30;
   top: calc(100% + 8px);
   left: 0;
-  right: 0;
+  width: min(360px, calc(100vw - 40px));
+  max-width: calc(100vw - 40px);
   background: #0f1830;
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -339,13 +379,14 @@ button.danger:hover {
 }
 
 .multi-select-toolbar {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
 }
 
 .multi-select-search {
   margin-top: 0 !important;
+  min-height: 38px;
 }
 
 .multi-select-actions {
@@ -355,16 +396,17 @@ button.danger:hover {
 }
 
 .multi-select-actions button {
-  padding: 8px 10px;
+  padding: 7px 10px;
   font-size: 12px;
+  min-height: 34px;
 }
 
 .multi-select-selected {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
-  margin: 12px 0;
-  max-height: 76px;
+  margin: 10px 0;
+  max-height: 66px;
   overflow: auto;
 }
 
@@ -392,7 +434,7 @@ button.danger:hover {
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
-  padding: 10px 12px;
+  padding: 9px 10px;
   border-radius: 12px;
   border: 1px solid rgba(255,255,255,0.04);
   background: rgba(255,255,255,0.02);
@@ -422,6 +464,24 @@ button.danger:hover {
 
 .multi-option-main strong {
   font-size: 13px;
+  line-height: 1.1;
+}
+
+.multi-option-main small {
+  line-height: 1.15;
+}
+
+.multi-option-meta {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+@media (max-width: 520px) {
+  .multi-select-menu {
+    width: min(320px, calc(100vw - 24px));
+    max-width: calc(100vw - 24px);
+  }
 }
 
 .multi-option-main small,

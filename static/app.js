@@ -150,15 +150,44 @@ function selectedPickerValue(key) {
 function pickerSummary(picker, selected) {
   const count = selected.length;
   if (picker.multi) {
-    if (!count) return { title: 'Выбрать символы', subtitle: 'Ничего не выбрано' };
-    if (count === 1) return { title: selected[0], subtitle: '1 символ выбран' };
-    if (count === 2) return { title: '2 выбрано', subtitle: selected.join(', ') };
-    return { title: `${count} выбрано`, subtitle: `${selected.slice(0, 2).join(', ')} +${count - 2}` };
+    if (!count) {
+      return {
+        mode: 'multi',
+        label: 'Символы',
+        title: 'Выбрать',
+        preview: 'Ничего не выбрано',
+        count: 0,
+      };
+    }
+    const preview = count <= 2
+      ? selected.join(', ')
+      : `${selected[0]}, ${selected[1]} +${count - 2}`;
+    return {
+      mode: 'multi',
+      label: 'Символы',
+      title: `${count} выбрано`,
+      preview,
+      count,
+    };
   }
-  if (!count) return { title: 'Выбрать символ', subtitle: 'Ничего не выбрано' };
+  if (!count) {
+    return {
+      mode: 'single',
+      label: 'Символ',
+      title: 'Выбрать символ',
+      preview: 'Ничего не выбрано',
+      count: 0,
+    };
+  }
   const row = (state.symbolCatalog || []).find((item) => item.symbol === selected[0]);
-  const subtitle = row ? `${row.base_coin || ''}/${row.quote_coin || ''}`.replace(/^\//, '') : '1 символ выбран';
-  return { title: selected[0], subtitle: subtitle || '1 символ выбран' };
+  const preview = row ? `${row.base_coin || ''}/${row.quote_coin || ''}`.replace(/^\//, '') : '1 символ выбран';
+  return {
+    mode: 'single',
+    label: 'Символ',
+    title: selected[0],
+    preview: preview || '1 символ выбран',
+    count: 1,
+  };
 }
 
 function formatCompact(value) {
@@ -287,10 +316,22 @@ function renderPicker(key) {
   const allRows = filteredCatalogForPicker(key);
   const selected = [...picker.selected];
   const summary = pickerSummary(picker, selected);
-  picker.toggle.innerHTML = `
-    <span class="picker-toggle-title">${summary.title}</span>
-    <span class="picker-toggle-subtitle">${summary.subtitle}</span>
-  `;
+  picker.toggle.innerHTML = picker.multi
+    ? `
+      <span class="picker-toggle-label">${summary.label}</span>
+      <span class="picker-toggle-row">
+        <span class="picker-toggle-title">${summary.title}</span>
+        <span class="picker-toggle-badge">${summary.count}</span>
+      </span>
+      <span class="picker-toggle-preview">${summary.preview}</span>
+    `
+    : `
+      <span class="picker-toggle-label">${summary.label}</span>
+      <span class="picker-toggle-row single">
+        <span class="picker-toggle-title">${summary.title}</span>
+      </span>
+      <span class="picker-toggle-preview">${summary.preview}</span>
+    `;
   picker.toggle.title = selected.join(', ');
   if (picker.valueInput) picker.valueInput.value = selected[0] || '';
 
