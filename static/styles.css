@@ -263,3 +263,138 @@ button.danger:hover {
     grid-template-columns: 1fr;
   }
 }
+
+.picker-field {
+  display: block;
+}
+
+.section-hint {
+  margin: 4px 0 0;
+}
+
+.prep-grid {
+  align-items: start;
+}
+
+.multi-select {
+  position: relative;
+  margin-top: 6px;
+}
+
+.multi-select-toggle {
+  width: 100%;
+  min-height: 44px;
+  text-align: left;
+  padding-right: 40px;
+  position: relative;
+  background: rgba(255,255,255,0.02);
+}
+
+.multi-select-toggle::after {
+  content: '▾';
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+}
+
+.multi-select.open .multi-select-toggle {
+  border-color: rgba(108,164,255,0.55);
+}
+
+.multi-select-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  background: #0f1830;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 12px;
+}
+
+.multi-select-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.multi-select-search {
+  margin-top: 0 !important;
+}
+
+.multi-select-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.multi-select-actions button {
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.multi-select-selected {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+  max-height: 76px;
+  overflow: auto;
+}
+
+.mini-chip {
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  background: rgba(108,164,255,0.14);
+}
+
+.multi-select-options {
+  max-height: 320px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.multi-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.04);
+  background: rgba(255,255,255,0.02);
+}
+
+.multi-option input {
+  margin: 0;
+  width: auto;
+}
+
+.multi-option-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.multi-option-main strong {
+  font-size: 13px;
+}
+
+.multi-option-main small,
+.multi-option-meta,
+.picker-empty {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.multi-option-meta {
+  white-space: nowrap;
+}

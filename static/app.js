@@ -1,11 +1,14 @@
 const state = {
   symbols: [],
+  symbolCatalog: [],
+  symbolCatalogMeta: {},
   selectedSymbols: new Set(),
   latestRunId: null,
   latestWalkforwardId: null,
   latestPaperSessionId: null,
   config: {},
   viewMode: 'idle',
+  pickers: {},
 };
 
 const els = {
@@ -24,9 +27,11 @@ const els = {
   paperStepBtn: document.getElementById('paperStepBtn'),
   paperStopBtn: document.getElementById('paperStopBtn'),
   paperRefreshBtn: document.getElementById('paperRefreshBtn'),
-  demoSymbols: document.getElementById('demoSymbols'),
+  demoPicker: document.getElementById('demoPicker'),
+  demoPickerHint: document.getElementById('demoPickerHint'),
   demoDays: document.getElementById('demoDays'),
-  syncSymbols: document.getElementById('syncSymbols'),
+  syncPicker: document.getElementById('syncPicker'),
+  syncPickerHint: document.getElementById('syncPickerHint'),
   syncDays: document.getElementById('syncDays'),
   paperName: document.getElementById('paperName'),
   paperSteps: document.getElementById('paperSteps'),
@@ -55,6 +60,7 @@ const els = {
   metricExpectancy: document.getElementById('metricExpectancy'),
   metricStopRate: document.getElementById('metricStopRate'),
   metricMode: document.getElementById('metricMode'),
+  universeHint: document.getElementById('universeHint'),
 };
 
 function log(message, type = 'info') {
@@ -106,13 +112,216 @@ async function runAsyncJob(kindLabel, path, body, onComplete) {
   return result;
 }
 
-function parseSymbols(input) {
-  return input.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+function normalizeSymbols(items) {
+  return [...new Set((items || []).map((s) => String(s || '').trim().toUpperCase()).filter(Boolean))];
+}
+
+function loadSavedPickerSelection(key) {
+  try {
+    return normalizeSymbols(JSON.parse(localStorage.getItem(`bybit-v4-picker-${key}`) || '[]'));
+  } catch (_) {
+    return [];
+  }
+}
+
+function savePickerSelection(key) {
+  const picker = state.pickers[key];
+  if (!picker) return;
+  localStorage.setItem(`bybit-v4-picker-${key}`, JSON.stringify([...picker.selected]));
 }
 
 function selectedSymbols() {
   return [...state.selectedSymbols];
 }
+
+function selectedPickerSymbols(key) {
+  return state.pickers[key] ? [...state.pickers[key].selected] : [];
+}
+
+function pickerSummary(selected) {
+  if (!selected.length) return 'Ничего не выбрано';
+  if (selected.length <= 3) return selected.join(', ');
+  return `Выбрано ${selected.length}: ${selected.slice(0, 3).join(', ')}…`;
+}
+
+function formatCompact(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '—';
+  return Number(value).toLocaleString('en-US', { notation: 'compact', maximumFractionDigits: 1 });
+}
+
+function buildMultiSelect(root, key) {
+  if (!root) return;
+  root.innerHTML = `
+    <button type="button" class="multi-select-toggle">Выбрать символы</button>
+    <div class="multi-select-menu" hidden>
+      <div class="multi-select-toolbar">
+        <input type="text" class="multi-select-search" placeholder="Поиск по символу или монете" />
+        <div class="multi-select-actions">
+          <button type="button" data-action="all">Выбрать всё</button>
+          <button type="button" data-action="clear">Сбросить всё</button>
+        </div>
+      </div>
+      <div class="multi-select-selected"></div>
+      <div class="multi-select-options"></div>
+    </div>
+  `;
+
+  const picker = {
+    root,
+    key,
+    toggle: root.querySelector('.multi-select-toggle'),
+    menu: root.querySelector('.multi-select-menu'),
+    search: root.querySelector('.multi-select-search'),
+    selectedWrap: root.querySelector('.multi-select-selected'),
+    optionsWrap: root.querySelector('.multi-select-options'),
+    selected: new Set(loadSavedPickerSelection(key)),
+    filter: '',
+  };
+  state.pickers[key] = picker;
+
+  picker.toggle.addEventListener('click', (event) => {
+    event.stopPropagation();
+    const willOpen = picker.menu.hasAttribute('hidden');
+    closeAllPickers();
+    if (willOpen) {
+      picker.menu.removeAttribute('hidden');
+      picker.root.classList.add('open');
+      picker.search.focus();
+      renderPicker(key);
+    }
+  });
+
+  picker.search.addEventListener('input', () => {
+    picker.filter = picker.search.value.trim().toUpperCase();
+    renderPicker(key);
+  });
+
+  picker.menu.addEventListener('click', (event) => {
+    const action = event.target.dataset.action;
+    if (action === 'all') {
+      filteredCatalogForPicker(key).forEach((row) => picker.selected.add(row.symbol));
+      savePickerSelection(key);
+      renderPicker(key);
+      return;
+    }
+    if (action === 'clear') {
+      picker.selected.clear();
+      savePickerSelection(key);
+      renderPicker(key);
+      return;
+    }
+    const removeSymbol = event.target.dataset.removeSymbol;
+    if (removeSymbol) {
+      picker.selected.delete(removeSymbol);
+      savePickerSelection(key);
+      renderPicker(key);
+    }
+  });
+}
+
+function closeAllPickers() {
+  Object.values(state.pickers).forEach((picker) => {
+    picker.menu.setAttribute('hidden', 'hidden');
+    picker.root.classList.remove('open');
+  });
+}
+
+function filteredCatalogForPicker(key) {
+  const picker = state.pickers[key];
+  const filter = (picker?.filter || '').trim().toUpperCase();
+  const rows = state.symbolCatalog || [];
+  if (!filter) return rows;
+  return rows.filter((row) => [row.symbol, row.base_coin, row.quote_coin].filter(Boolean).join(' ').toUpperCase().includes(filter));
+}
+
+function ensurePickerDefaults() {
+  const demoDefaults = normalizeSymbols(state.config.demo_symbols || ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT']);
+  const syncDefaults = normalizeSymbols(loadSavedPickerSelection('sync').length ? loadSavedPickerSelection('sync') : ['BTCUSDT', 'ETHUSDT']);
+  const catalogSymbols = new Set((state.symbolCatalog || []).map((row) => row.symbol));
+  const fallbackDemo = demoDefaults.filter((symbol) => catalogSymbols.has(symbol));
+  const fallbackSync = syncDefaults.filter((symbol) => catalogSymbols.has(symbol));
+  if (state.pickers.demo && state.pickers.demo.selected.size === 0) {
+    (fallbackDemo.length ? fallbackDemo : demoDefaults).forEach((symbol) => state.pickers.demo.selected.add(symbol));
+  }
+  if (state.pickers.sync && state.pickers.sync.selected.size === 0) {
+    (fallbackSync.length ? fallbackSync : syncDefaults).forEach((symbol) => state.pickers.sync.selected.add(symbol));
+  }
+  savePickerSelection('demo');
+  savePickerSelection('sync');
+}
+
+function renderPicker(key) {
+  const picker = state.pickers[key];
+  if (!picker) return;
+  const allRows = filteredCatalogForPicker(key);
+  const selected = [...picker.selected];
+  picker.toggle.textContent = pickerSummary(selected);
+  picker.toggle.title = selected.join(', ');
+
+  picker.selectedWrap.innerHTML = '';
+  if (selected.length) {
+    selected.slice(0, 12).forEach((symbol) => {
+      const tag = document.createElement('button');
+      tag.type = 'button';
+      tag.className = 'mini-chip';
+      tag.dataset.removeSymbol = symbol;
+      tag.textContent = symbol;
+      picker.selectedWrap.appendChild(tag);
+    });
+  } else {
+    const empty = document.createElement('div');
+    empty.className = 'picker-empty';
+    empty.textContent = 'Ничего не выбрано';
+    picker.selectedWrap.appendChild(empty);
+  }
+
+  picker.optionsWrap.innerHTML = '';
+  if (!allRows.length) {
+    const empty = document.createElement('div');
+    empty.className = 'picker-empty';
+    empty.textContent = 'Ничего не найдено';
+    picker.optionsWrap.appendChild(empty);
+    return;
+  }
+  allRows.slice(0, 120).forEach((row) => {
+    const option = document.createElement('label');
+    option.className = 'multi-option';
+    option.innerHTML = `
+      <input type="checkbox" ${picker.selected.has(row.symbol) ? 'checked' : ''} />
+      <div class="multi-option-main">
+        <strong>${row.symbol}</strong>
+        <small>${row.base_coin || ''}/${row.quote_coin || ''}</small>
+      </div>
+      <div class="multi-option-meta">${formatCompact(row.turnover24h)}</div>
+    `;
+    option.querySelector('input').addEventListener('change', (event) => {
+      if (event.target.checked) picker.selected.add(row.symbol);
+      else picker.selected.delete(row.symbol);
+      savePickerSelection(key);
+      renderPicker(key);
+    });
+    picker.optionsWrap.appendChild(option);
+  });
+}
+
+function updateCatalogHints() {
+  const meta = state.symbolCatalogMeta || {};
+  const src = meta.source || '—';
+  const when = meta.fetched_at ? new Date(meta.fetched_at).toLocaleString() : '—';
+  const suffix = meta.error ? ` Ошибка обновления: ${meta.error}` : '';
+  const hint = `Каталог: ${src}. Bybit linear / Trading / USDT, сортировка по 24h turnover. Обновлено: ${when}.${suffix}`;
+  if (els.demoPickerHint) els.demoPickerHint.textContent = hint;
+  if (els.syncPickerHint) els.syncPickerHint.textContent = hint;
+}
+
+function initPickers() {
+  buildMultiSelect(els.demoPicker, 'demo');
+  buildMultiSelect(els.syncPicker, 'sync');
+}
+
+document.addEventListener('click', (event) => {
+  if (!event.target.closest('.multi-select')) closeAllPickers();
+});
 
 function formatNum(value, digits = 2) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return '—';
@@ -314,12 +523,32 @@ function renderSecondaryRows(rows = [], mode = 'events') {
   });
 }
 
-async function refreshSymbols() {
-  const payload = await api('/api/symbols');
-  state.symbols = payload.symbols || [];
-  if (state.selectedSymbols.size === 0) state.symbols.forEach((symbol) => state.selectedSymbols.add(symbol));
-  else state.selectedSymbols = new Set([...state.selectedSymbols].filter((s) => state.symbols.includes(s)));
+async function refreshSymbols({ refreshCatalog = false } = {}) {
+  const [localPayload, catalogPayload] = await Promise.all([
+    api('/api/symbols'),
+    api(`/api/symbol-catalog?limit=120${refreshCatalog ? '&refresh=1' : ''}`),
+  ]);
+  state.symbols = localPayload.symbols || [];
+  state.symbolCatalog = catalogPayload.symbols || [];
+  state.symbolCatalogMeta = catalogPayload;
+  ensurePickerDefaults();
+  renderPicker('demo');
+  renderPicker('sync');
+  updateCatalogHints();
+
+  const preferred = selectedPickerSymbols('demo').filter((symbol) => state.symbols.includes(symbol));
+  if (state.selectedSymbols.size === 0) {
+    (preferred.length ? preferred : state.symbols).forEach((symbol) => state.selectedSymbols.add(symbol));
+  } else {
+    state.selectedSymbols = new Set([...state.selectedSymbols].filter((s) => state.symbols.includes(s)));
+    if (state.selectedSymbols.size === 0) {
+      (preferred.length ? preferred : state.symbols).forEach((symbol) => state.selectedSymbols.add(symbol));
+    }
+  }
   renderSymbols();
+  if (els.universeHint) {
+    els.universeHint.textContent = `Universe = локально загруженные символы из candles (interval=5). Сейчас: ${state.symbols.length}.`;
+  }
 }
 
 async function loadConfig() {
@@ -445,7 +674,7 @@ async function loadPaperSession(sessionId = state.latestPaperSessionId) {
 
 els.loadDemoBtn.addEventListener('click', async () => {
   try {
-    const result = await runAsyncJob('Demo-данные', '/api/load-demo-data', { symbols: parseSymbols(els.demoSymbols.value), days: Number(els.demoDays.value), interval: '5' });
+    const result = await runAsyncJob('Demo-данные', '/api/load-demo-data', { symbols: selectedPickerSymbols('demo'), days: Number(els.demoDays.value), interval: '5' });
     log(`Demo-данные: ${result.candles_upserted} свечей, funding ${result.funding_upserted}`, 'success');
     await refreshSymbols();
   } catch (error) { log(error.message.split('\n')[0], 'error'); }
@@ -453,14 +682,14 @@ els.loadDemoBtn.addEventListener('click', async () => {
 
 els.syncBybitBtn.addEventListener('click', async () => {
   try {
-    const result = await runAsyncJob('Bybit sync', '/api/sync-bybit-public', { symbols: parseSymbols(els.syncSymbols.value), days: Number(els.syncDays.value), interval: '5' });
+    const result = await runAsyncJob('Bybit sync', '/api/sync-bybit-public', { symbols: selectedPickerSymbols('sync'), days: Number(els.syncDays.value), interval: '5' });
     log(`Bybit sync: ${result.candles_upserted} свечей, funding ${result.funding_upserted}`, 'success');
     await refreshSymbols();
   } catch (error) { log(error.message.split('\n')[0], 'error'); }
 });
 
 els.refreshSymbolsBtn.addEventListener('click', async () => {
-  try { await refreshSymbols(); log('Universe обновлён', 'success'); } catch (error) { log(error.message, 'error'); }
+  try { await refreshSymbols({ refreshCatalog: true }); log('Universe и каталог обновлены', 'success'); } catch (error) { log(error.message, 'error'); }
 });
 
 els.runBacktestBtn.addEventListener('click', async () => {
@@ -593,6 +822,7 @@ els.csvForm.addEventListener('submit', async (event) => {
 
 (async function init() {
   try {
+    initPickers();
     await loadConfig();
     await refreshSymbols();
     await loadLiveStatus();

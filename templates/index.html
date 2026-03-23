@@ -19,13 +19,21 @@
         <h2>Подготовка данных</h2>
         <div class="stack">
           <button id="loadDemoBtn" class="primary">Загрузить demo-данные</button>
-          <div class="grid two">
-            <label><span>Символы</span><input id="demoSymbols" value="BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,DOGEUSDT" /></label>
+          <div class="grid two prep-grid">
+            <label class="picker-field">
+              <span>Символы</span>
+              <div id="demoPicker" class="multi-select"></div>
+              <p class="hint" id="demoPickerHint">Каталог Bybit linear USDT, поиск по символу и монете, множественный выбор.</p>
+            </label>
             <label><span>Дней</span><input id="demoDays" type="number" min="5" value="20" /></label>
           </div>
           <button id="syncBybitBtn">Синхронизировать Bybit Public</button>
-          <div class="grid two">
-            <label><span>Символы</span><input id="syncSymbols" value="BTCUSDT,ETHUSDT" /></label>
+          <div class="grid two prep-grid">
+            <label class="picker-field">
+              <span>Символы</span>
+              <div id="syncPicker" class="multi-select"></div>
+              <p class="hint" id="syncPickerHint">Каталог Bybit linear USDT, сортировка по 24h turnover.</p>
+            </label>
             <label><span>Дней</span><input id="syncDays" type="number" min="1" value="14" /></label>
           </div>
         </div>
@@ -93,7 +101,7 @@
           <p class="muted">Trend/Reversion ядро, regime & no-trade фильтры, rolling train/test, экспорт CSV и live-adapter слой с dry-run по умолчанию.</p>
         </div>
         <div class="actions multi-actions">
-          <button id="refreshSymbolsBtn">Обновить список символов</button>
+          <button id="refreshSymbolsBtn">Обновить universe и каталог</button>
           <button id="runBacktestBtn" class="primary">Бэктест</button>
           <button id="runWalkforwardBtn">Walk-forward</button>
           <button id="createPaperBtn">Создать paper-сессию</button>
@@ -102,7 +110,10 @@
 
       <section class="panel">
         <div class="section-head">
-          <h2>Universe</h2>
+          <div>
+            <h2>Universe</h2>
+            <p class="hint section-hint" id="universeHint">Universe = локально загруженные символы из candles (interval=5).</p>
+          </div>
           <span class="badge" id="symbolsCountBadge">0 символов</span>
         </div>
         <div id="symbolsList" class="chips"></div>

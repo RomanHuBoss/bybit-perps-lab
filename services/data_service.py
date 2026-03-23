@@ -18,6 +18,175 @@ SUPPORTED_INTERVALS = {'1', '3', '5', '15', '30', '60', '120', '240', '360', '72
 class DataValidationError(ValueError):
     pass
 
+from config import INSTANCE_DIR
+
+SYMBOL_CATALOG_CACHE_PATH = INSTANCE_DIR / 'symbol_catalog_linear_usdt.json'
+SYMBOL_CATALOG_TTL_SECONDS = 6 * 60 * 60
+DEFAULT_SYMBOL_CATALOG = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT', 'BNBUSDT']
+
+
+def _catalog_cache_payload(symbols: list[dict], source: str, stale: bool = False, error: str | None = None) -> dict:
+    return {
+        'source': source,
+        'fetched_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'stale': stale,
+        'error': error,
+        'symbols': symbols,
+    }
+
+
+def _read_symbol_catalog_cache() -> dict | None:
+    if not SYMBOL_CATALOG_CACHE_PATH.exists():
+        return None
+    try:
+        payload = pd.read_json(SYMBOL_CATALOG_CACHE_PATH, typ='series').to_dict()
+    except Exception:
+        import json
+        try:
+            payload = json.loads(SYMBOL_CATALOG_CACHE_PATH.read_text())
+        except Exception:
+            return None
+    fetched_at = payload.get('fetched_at')
+    if fetched_at:
+        try:
+            ts = pd.Timestamp(fetched_at)
+            if ts.tzinfo is None:
+                ts = ts.tz_localize('UTC')
+            else:
+                ts = ts.tz_convert('UTC')
+            payload['age_seconds'] = max(0, int((pd.Timestamp.now(tz='UTC') - ts).total_seconds()))
+        except Exception:
+            payload['age_seconds'] = None
+    return payload
+
+
+def _write_symbol_catalog_cache(payload: dict) -> None:
+    import json
+    SYMBOL_CATALOG_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    SYMBOL_CATALOG_CACHE_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def _fallback_symbol_catalog(reason: str | None = None) -> dict:
+    db_symbols = list_symbols('5')
+    merged = []
+    seen = set()
+    for idx, symbol in enumerate([*db_symbols, *DEFAULT_SYMBOL_CATALOG]):
+        symbol = symbol.upper()
+        if symbol in seen:
+            continue
+        seen.add(symbol)
+        merged.append({
+            'symbol': symbol,
+            'base_coin': symbol.replace('USDT', '') if symbol.endswith('USDT') else symbol,
+            'quote_coin': 'USDT' if symbol.endswith('USDT') else '',
+            'turnover24h': None,
+            'volume24h': None,
+            'last_price': None,
+            'sort_rank': idx + 1,
+        })
+    return _catalog_cache_payload(merged, source='fallback', stale=True, error=reason)
+
+
+def fetch_bybit_linear_usdt_symbol_catalog(limit: int = 120, force_refresh: bool = False) -> dict:
+    cache = _read_symbol_catalog_cache()
+    if cache and not force_refresh:
+        age_seconds = cache.get('age_seconds')
+        if age_seconds is not None and age_seconds < SYMBOL_CATALOG_TTL_SECONDS:
+            return cache
+
+    import json
+    session = requests.Session()
+    session.headers.update({'User-Agent': 'BybitPerpsLab/4.1'})
+
+    def _get(path: str, params: dict) -> dict:
+        response = session.get(f'{BYBIT_BASE_URL}{path}', params=params, timeout=20)
+        response.raise_for_status()
+        payload = response.json()
+        if str(payload.get('retCode', 0)) not in {'0', 'None'}:
+            raise RuntimeError(payload.get('retMsg') or 'Bybit API error')
+        return payload.get('result') or {}
+
+    try:
+        instruments = []
+        cursor = None
+        while True:
+            params = {'category': 'linear', 'status': 'Trading', 'limit': 1000}
+            if cursor:
+                params['cursor'] = cursor
+            result = _get('/v5/market/instruments-info', params)
+            items = result.get('list') or []
+            instruments.extend(items)
+            cursor = result.get('nextPageCursor')
+            if not cursor:
+                break
+            if len(instruments) > 5000:
+                break
+
+        ticker_result = _get('/v5/market/tickers', {'category': 'linear'})
+        ticker_map = {item.get('symbol'): item for item in (ticker_result.get('list') or [])}
+
+        symbols = []
+        seen = set()
+        for item in instruments:
+            symbol = str(item.get('symbol', '')).upper()
+            if not symbol or symbol in seen:
+                continue
+            if item.get('quoteCoin') != 'USDT':
+                continue
+            if item.get('status') != 'Trading':
+                continue
+            if item.get('contractType') not in {'LinearPerpetual', 'LinearFutures'}:
+                continue
+            if symbol.endswith('USDC'):
+                continue
+            seen.add(symbol)
+            ticker = ticker_map.get(symbol, {})
+            try:
+                turnover24h = float(ticker.get('turnover24h')) if ticker.get('turnover24h') not in (None, '') else None
+            except Exception:
+                turnover24h = None
+            try:
+                volume24h = float(ticker.get('volume24h')) if ticker.get('volume24h') not in (None, '') else None
+            except Exception:
+                volume24h = None
+            try:
+                last_price = float(ticker.get('lastPrice')) if ticker.get('lastPrice') not in (None, '') else None
+            except Exception:
+                last_price = None
+            symbols.append({
+                'symbol': symbol,
+                'base_coin': item.get('baseCoin'),
+                'quote_coin': item.get('quoteCoin'),
+                'contract_type': item.get('contractType'),
+                'status': item.get('status'),
+                'launch_time': item.get('launchTime'),
+                'turnover24h': turnover24h,
+                'volume24h': volume24h,
+                'last_price': last_price,
+            })
+
+        symbols.sort(key=lambda row: (
+            -(row.get('turnover24h') or -1),
+            -(row.get('volume24h') or -1),
+            row['symbol'],
+        ))
+        trimmed = []
+        for idx, row in enumerate(symbols[:limit], start=1):
+            out = dict(row)
+            out['sort_rank'] = idx
+            trimmed.append(out)
+
+        payload = _catalog_cache_payload(trimmed, source='bybit')
+        _write_symbol_catalog_cache(payload)
+        return payload
+    except Exception as exc:
+        if cache:
+            cache['stale'] = True
+            cache['source'] = 'cache-fallback'
+            cache['error'] = str(exc)
+            return cache
+        return _fallback_symbol_catalog(str(exc))
+
 
 def _parse_numeric_epoch(numeric: pd.Series) -> pd.Series:
     result = pd.Series(pd.NaT, index=numeric.index, dtype='datetime64[ns, UTC]')

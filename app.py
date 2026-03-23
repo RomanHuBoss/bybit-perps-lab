@@ -14,6 +14,7 @@ from services.backtest_engine import BacktestEngine, get_run_details, list_runs
 from services.data_service import (
     DataValidationError,
     generate_demo_market_data,
+    fetch_bybit_linear_usdt_symbol_catalog,
     import_csv_file,
     list_symbols,
     sync_bybit_public,
@@ -72,6 +73,14 @@ def create_app() -> Flask:
     @app.get('/api/symbols')
     def api_symbols():
         return jsonify({'symbols': list_symbols(interval=request.args.get('interval', '5'))})
+
+    @app.get('/api/symbol-catalog')
+    def api_symbol_catalog():
+        force_refresh = request.args.get('refresh', '0') in {'1', 'true', 'yes'}
+        limit = int(request.args.get('limit', 120))
+        catalog = fetch_bybit_linear_usdt_symbol_catalog(limit=limit, force_refresh=force_refresh)
+        catalog['local_symbols'] = list_symbols(interval=request.args.get('interval', '5'))
+        return jsonify(catalog)
 
     @app.post('/api/load-demo-data')
     def api_load_demo_data():
