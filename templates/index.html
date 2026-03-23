@@ -42,8 +42,13 @@
       <section class="panel compact">
         <h2>Импорт CSV</h2>
         <form id="csvForm" class="stack">
-          <div class="grid two">
-            <label><span>Символ</span><input name="symbol" required value="BTCUSDT" /></label>
+          <div class="grid two prep-grid">
+            <label class="picker-field">
+              <span>Символ</span>
+              <input id="csvSymbol" name="symbol" type="hidden" value="BTCUSDT" />
+              <div id="csvPicker" class="multi-select single-select"></div>
+              <p class="hint" id="csvPickerHint">Каталог Bybit linear USDT, выбор одного символа для маркировки импортируемого CSV.</p>
+            </label>
             <label><span>Интервал</span><input name="interval" required value="5" /></label>
           </div>
           <label><span>CSV</span><input name="file" type="file" accept=".csv" required /></label>
@@ -234,7 +239,12 @@
           <article class="panel table-panel">
             <div class="stack">
               <div class="grid three">
-                <label><span>Символ</span><input id="tinySymbol" value="DOGEUSDT" /></label>
+                <label class="picker-field">
+                  <span>Символ</span>
+                  <input id="tinySymbol" type="hidden" value="DOGEUSDT" />
+                  <div id="tinyPicker" class="multi-select single-select"></div>
+                  <p class="hint" id="tinyPickerHint">Каталог Bybit linear USDT, один символ для плана и dry-run.</p>
+                </label>
                 <label><span>Notional, USDT</span><input id="tinyNotional" type="number" min="5" step="1" value="10" /></label>
                 <label class="check"><input id="tinyFreshOnly" type="checkbox" checked /><span>Только свежий сигнал</span></label>
               </div>

@@ -303,6 +303,28 @@ button.danger:hover {
   border-color: rgba(108,164,255,0.55);
 }
 
+.picker-toggle-title {
+  display: block;
+  font-weight: 600;
+  line-height: 1.2;
+  max-width: calc(100% - 10px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-toggle-subtitle {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.2;
+  max-width: calc(100% - 10px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .multi-select-menu {
   position: absolute;
   z-index: 30;
@@ -346,6 +368,10 @@ button.danger:hover {
   overflow: auto;
 }
 
+.single-select .multi-select-selected {
+  display: none;
+}
+
 .mini-chip {
   border-radius: 999px;
   padding: 6px 10px;
@@ -377,6 +403,16 @@ button.danger:hover {
   width: auto;
 }
 
+.single-option {
+  cursor: pointer;
+}
+
+.single-option:hover,
+.multi-option:hover {
+  border-color: rgba(108,164,255,0.28);
+  background: rgba(255,255,255,0.035);
+}
+
 .multi-option-main {
   min-width: 0;
   display: flex;
@@ -398,3 +434,6 @@ button.danger:hover {
 .multi-option-meta {
   white-space: nowrap;
 }
+
+
+.single-actions { justify-content: flex-end; }

@@ -30,9 +30,13 @@ const els = {
   demoPicker: document.getElementById('demoPicker'),
   demoPickerHint: document.getElementById('demoPickerHint'),
   demoDays: document.getElementById('demoDays'),
+  csvPicker: document.getElementById('csvPicker'),
+  csvPickerHint: document.getElementById('csvPickerHint'),
   syncPicker: document.getElementById('syncPicker'),
   syncPickerHint: document.getElementById('syncPickerHint'),
   syncDays: document.getElementById('syncDays'),
+  tinyPicker: document.getElementById('tinyPicker'),
+  tinyPickerHint: document.getElementById('tinyPickerHint'),
   paperName: document.getElementById('paperName'),
   paperSteps: document.getElementById('paperSteps'),
   symbolsList: document.getElementById('symbolsList'),
@@ -43,6 +47,7 @@ const els = {
   secondaryTbody: document.getElementById('secondaryTbody'),
   configForm: document.getElementById('configForm'),
   csvForm: document.getElementById('csvForm'),
+  csvSymbol: document.getElementById('csvSymbol'),
   equityCanvas: document.getElementById('equityCanvas'),
   paperStatus: document.getElementById('paperStatus'),
   paperMeta: document.getElementById('paperMeta'),
@@ -138,10 +143,22 @@ function selectedPickerSymbols(key) {
   return state.pickers[key] ? [...state.pickers[key].selected] : [];
 }
 
-function pickerSummary(selected) {
-  if (!selected.length) return 'Ничего не выбрано';
-  if (selected.length <= 3) return selected.join(', ');
-  return `Выбрано ${selected.length}: ${selected.slice(0, 3).join(', ')}…`;
+function selectedPickerValue(key) {
+  return selectedPickerSymbols(key)[0] || '';
+}
+
+function pickerSummary(picker, selected) {
+  const count = selected.length;
+  if (picker.multi) {
+    if (!count) return { title: 'Выбрать символы', subtitle: 'Ничего не выбрано' };
+    if (count === 1) return { title: selected[0], subtitle: '1 символ выбран' };
+    if (count === 2) return { title: '2 выбрано', subtitle: selected.join(', ') };
+    return { title: `${count} выбрано`, subtitle: `${selected.slice(0, 2).join(', ')} +${count - 2}` };
+  }
+  if (!count) return { title: 'Выбрать символ', subtitle: 'Ничего не выбрано' };
+  const row = (state.symbolCatalog || []).find((item) => item.symbol === selected[0]);
+  const subtitle = row ? `${row.base_coin || ''}/${row.quote_coin || ''}`.replace(/^\//, '') : '1 символ выбран';
+  return { title: selected[0], subtitle: subtitle || '1 символ выбран' };
 }
 
 function formatCompact(value) {
@@ -149,16 +166,19 @@ function formatCompact(value) {
   return Number(value).toLocaleString('en-US', { notation: 'compact', maximumFractionDigits: 1 });
 }
 
-function buildMultiSelect(root, key) {
+function buildPicker(root, key, { multi = true, placeholder = 'Выбрать символы' } = {}) {
   if (!root) return;
   root.innerHTML = `
-    <button type="button" class="multi-select-toggle">Выбрать символы</button>
+    <button type="button" class="multi-select-toggle">
+      <span class="picker-toggle-title">${placeholder}</span>
+      <span class="picker-toggle-subtitle">Ничего не выбрано</span>
+    </button>
     <div class="multi-select-menu" hidden>
       <div class="multi-select-toolbar">
         <input type="text" class="multi-select-search" placeholder="Поиск по символу или монете" />
-        <div class="multi-select-actions">
-          <button type="button" data-action="all">Выбрать всё</button>
-          <button type="button" data-action="clear">Сбросить всё</button>
+        <div class="multi-select-actions ${multi ? '' : 'single-actions'}">
+          ${multi ? '<button type="button" data-action="all">Выбрать всё</button>' : ''}
+          <button type="button" data-action="clear">${multi ? 'Сбросить всё' : 'Очистить'}</button>
         </div>
       </div>
       <div class="multi-select-selected"></div>
@@ -169,6 +189,8 @@ function buildMultiSelect(root, key) {
   const picker = {
     root,
     key,
+    multi,
+    placeholder,
     toggle: root.querySelector('.multi-select-toggle'),
     menu: root.querySelector('.multi-select-menu'),
     search: root.querySelector('.multi-select-search'),
@@ -176,6 +198,7 @@ function buildMultiSelect(root, key) {
     optionsWrap: root.querySelector('.multi-select-options'),
     selected: new Set(loadSavedPickerSelection(key)),
     filter: '',
+    valueInput: document.getElementById(key === 'csv' ? 'csvSymbol' : key === 'tiny' ? 'tinySymbol' : ''),
   };
   state.pickers[key] = picker;
 
@@ -198,7 +221,7 @@ function buildMultiSelect(root, key) {
 
   picker.menu.addEventListener('click', (event) => {
     const action = event.target.dataset.action;
-    if (action === 'all') {
+    if (action === 'all' && picker.multi) {
       filteredCatalogForPicker(key).forEach((row) => picker.selected.add(row.symbol));
       savePickerSelection(key);
       renderPicker(key);
@@ -234,10 +257,17 @@ function filteredCatalogForPicker(key) {
   return rows.filter((row) => [row.symbol, row.base_coin, row.quote_coin].filter(Boolean).join(' ').toUpperCase().includes(filter));
 }
 
+function setSingleDefault(picker, desiredList) {
+  if (!picker || picker.selected.size > 0) return;
+  const first = desiredList.find(Boolean);
+  if (first) picker.selected = new Set([first]);
+}
+
 function ensurePickerDefaults() {
   const demoDefaults = normalizeSymbols(state.config.demo_symbols || ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT']);
   const syncDefaults = normalizeSymbols(loadSavedPickerSelection('sync').length ? loadSavedPickerSelection('sync') : ['BTCUSDT', 'ETHUSDT']);
   const catalogSymbols = new Set((state.symbolCatalog || []).map((row) => row.symbol));
+  const availableSymbols = state.symbols.length ? state.symbols : [...catalogSymbols];
   const fallbackDemo = demoDefaults.filter((symbol) => catalogSymbols.has(symbol));
   const fallbackSync = syncDefaults.filter((symbol) => catalogSymbols.has(symbol));
   if (state.pickers.demo && state.pickers.demo.selected.size === 0) {
@@ -246,8 +276,9 @@ function ensurePickerDefaults() {
   if (state.pickers.sync && state.pickers.sync.selected.size === 0) {
     (fallbackSync.length ? fallbackSync : syncDefaults).forEach((symbol) => state.pickers.sync.selected.add(symbol));
   }
-  savePickerSelection('demo');
-  savePickerSelection('sync');
+  setSingleDefault(state.pickers.csv, [loadSavedPickerSelection('csv')[0], availableSymbols[0], demoDefaults[0], 'BTCUSDT'].filter((symbol) => catalogSymbols.has(symbol) || symbol === 'BTCUSDT'));
+  setSingleDefault(state.pickers.tiny, [loadSavedPickerSelection('tiny')[0], 'DOGEUSDT', availableSymbols[0], demoDefaults[0]].filter((symbol) => catalogSymbols.has(symbol)));
+  ['demo', 'sync', 'csv', 'tiny'].forEach(savePickerSelection);
 }
 
 function renderPicker(key) {
@@ -255,24 +286,34 @@ function renderPicker(key) {
   if (!picker) return;
   const allRows = filteredCatalogForPicker(key);
   const selected = [...picker.selected];
-  picker.toggle.textContent = pickerSummary(selected);
+  const summary = pickerSummary(picker, selected);
+  picker.toggle.innerHTML = `
+    <span class="picker-toggle-title">${summary.title}</span>
+    <span class="picker-toggle-subtitle">${summary.subtitle}</span>
+  `;
   picker.toggle.title = selected.join(', ');
+  if (picker.valueInput) picker.valueInput.value = selected[0] || '';
 
   picker.selectedWrap.innerHTML = '';
-  if (selected.length) {
-    selected.slice(0, 12).forEach((symbol) => {
-      const tag = document.createElement('button');
-      tag.type = 'button';
-      tag.className = 'mini-chip';
-      tag.dataset.removeSymbol = symbol;
-      tag.textContent = symbol;
-      picker.selectedWrap.appendChild(tag);
-    });
+  if (picker.multi) {
+    if (selected.length) {
+      selected.slice(0, 12).forEach((symbol) => {
+        const tag = document.createElement('button');
+        tag.type = 'button';
+        tag.className = 'mini-chip';
+        tag.dataset.removeSymbol = symbol;
+        tag.textContent = symbol;
+        picker.selectedWrap.appendChild(tag);
+      });
+    } else {
+      const empty = document.createElement('div');
+      empty.className = 'picker-empty';
+      empty.textContent = 'Ничего не выбрано';
+      picker.selectedWrap.appendChild(empty);
+    }
+    picker.selectedWrap.hidden = false;
   } else {
-    const empty = document.createElement('div');
-    empty.className = 'picker-empty';
-    empty.textContent = 'Ничего не выбрано';
-    picker.selectedWrap.appendChild(empty);
+    picker.selectedWrap.hidden = true;
   }
 
   picker.optionsWrap.innerHTML = '';
@@ -285,9 +326,9 @@ function renderPicker(key) {
   }
   allRows.slice(0, 120).forEach((row) => {
     const option = document.createElement('label');
-    option.className = 'multi-option';
+    option.className = `multi-option ${picker.multi ? '' : 'single-option'}`;
     option.innerHTML = `
-      <input type="checkbox" ${picker.selected.has(row.symbol) ? 'checked' : ''} />
+      <input type="${picker.multi ? 'checkbox' : 'radio'}" name="picker-${key}" ${picker.selected.has(row.symbol) ? 'checked' : ''} />
       <div class="multi-option-main">
         <strong>${row.symbol}</strong>
         <small>${row.base_coin || ''}/${row.quote_coin || ''}</small>
@@ -295,8 +336,13 @@ function renderPicker(key) {
       <div class="multi-option-meta">${formatCompact(row.turnover24h)}</div>
     `;
     option.querySelector('input').addEventListener('change', (event) => {
-      if (event.target.checked) picker.selected.add(row.symbol);
-      else picker.selected.delete(row.symbol);
+      if (picker.multi) {
+        if (event.target.checked) picker.selected.add(row.symbol);
+        else picker.selected.delete(row.symbol);
+      } else {
+        picker.selected = event.target.checked ? new Set([row.symbol]) : new Set();
+        closeAllPickers();
+      }
       savePickerSelection(key);
       renderPicker(key);
     });
@@ -309,14 +355,18 @@ function updateCatalogHints() {
   const src = meta.source || '—';
   const when = meta.fetched_at ? new Date(meta.fetched_at).toLocaleString() : '—';
   const suffix = meta.error ? ` Ошибка обновления: ${meta.error}` : '';
-  const hint = `Каталог: ${src}. Bybit linear / Trading / USDT, сортировка по 24h turnover. Обновлено: ${when}.${suffix}`;
-  if (els.demoPickerHint) els.demoPickerHint.textContent = hint;
-  if (els.syncPickerHint) els.syncPickerHint.textContent = hint;
+  const baseHint = `Каталог: ${src}. Bybit linear / Trading / USDT, сортировка по 24h turnover. Обновлено: ${when}.${suffix}`;
+  if (els.demoPickerHint) els.demoPickerHint.textContent = `${baseHint} Для demo можно выбрать несколько символов.`;
+  if (els.syncPickerHint) els.syncPickerHint.textContent = `${baseHint} Для sync можно выбрать несколько символов.`;
+  if (els.csvPickerHint) els.csvPickerHint.textContent = `${baseHint} Для CSV нужен один символ — метка импортируемого файла.`;
+  if (els.tinyPickerHint) els.tinyPickerHint.textContent = `${baseHint} Для tiny live используется один символ.`;
 }
 
 function initPickers() {
-  buildMultiSelect(els.demoPicker, 'demo');
-  buildMultiSelect(els.syncPicker, 'sync');
+  buildPicker(els.demoPicker, 'demo', { multi: true, placeholder: 'Выбрать символы' });
+  buildPicker(els.syncPicker, 'sync', { multi: true, placeholder: 'Выбрать символы' });
+  buildPicker(els.csvPicker, 'csv', { multi: false, placeholder: 'Выбрать символ' });
+  buildPicker(els.tinyPicker, 'tiny', { multi: false, placeholder: 'Выбрать символ' });
 }
 
 document.addEventListener('click', (event) => {
@@ -534,6 +584,8 @@ async function refreshSymbols({ refreshCatalog = false } = {}) {
   ensurePickerDefaults();
   renderPicker('demo');
   renderPicker('sync');
+  renderPicker('csv');
+  renderPicker('tiny');
   updateCatalogHints();
 
   const preferred = selectedPickerSymbols('demo').filter((symbol) => state.symbols.includes(symbol));
