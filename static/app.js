@@ -79,6 +79,33 @@ async function api(path, options = {}) {
   return payload;
 }
 
+async function waitForJob(jobId, { intervalMs = 700, onTick } = {}) {
+  while (true) {
+    const job = await api(`/api/jobs/${jobId}`);
+    if (onTick) onTick(job);
+    if (job.status === 'success') return job.result;
+    if (job.status === 'error') throw new Error(job.error || 'Background job failed');
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+
+async function runAsyncJob(kindLabel, path, body, onComplete) {
+  const queued = await api(path, { method: 'POST', body: JSON.stringify({ ...body, async: true }) });
+  log(`${kindLabel}: задача ${queued.job_id} поставлена в очередь`, 'info');
+  let lastStatus = '';
+  const result = await waitForJob(queued.job_id, {
+    intervalMs: 700,
+    onTick(job) {
+      if (job.status !== lastStatus) {
+        lastStatus = job.status;
+        if (job.status === 'running') log(`${kindLabel}: задача ${job.id} выполняется`, 'info');
+      }
+    },
+  });
+  if (onComplete) await onComplete(result);
+  return result;
+}
+
 function parseSymbols(input) {
   return input.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
 }
@@ -413,22 +440,23 @@ async function loadPaperSession(sessionId = state.latestPaperSessionId) {
   renderSecondaryRows(data.events, 'events');
   els.runBadge.textContent = `Paper #${session.id}`;
   state.viewMode = 'paper';
+  return data;
 }
 
 els.loadDemoBtn.addEventListener('click', async () => {
   try {
-    const result = await api('/api/load-demo-data', { method: 'POST', body: JSON.stringify({ symbols: parseSymbols(els.demoSymbols.value), days: Number(els.demoDays.value), interval: '5' }) });
+    const result = await runAsyncJob('Demo-данные', '/api/load-demo-data', { symbols: parseSymbols(els.demoSymbols.value), days: Number(els.demoDays.value), interval: '5' });
     log(`Demo-данные: ${result.candles_upserted} свечей, funding ${result.funding_upserted}`, 'success');
     await refreshSymbols();
-  } catch (error) { log(error.message, 'error'); }
+  } catch (error) { log(error.message.split('\n')[0], 'error'); }
 });
 
 els.syncBybitBtn.addEventListener('click', async () => {
   try {
-    const result = await api('/api/sync-bybit-public', { method: 'POST', body: JSON.stringify({ symbols: parseSymbols(els.syncSymbols.value), days: Number(els.syncDays.value), interval: '5' }) });
+    const result = await runAsyncJob('Bybit sync', '/api/sync-bybit-public', { symbols: parseSymbols(els.syncSymbols.value), days: Number(els.syncDays.value), interval: '5' });
     log(`Bybit sync: ${result.candles_upserted} свечей, funding ${result.funding_upserted}`, 'success');
     await refreshSymbols();
-  } catch (error) { log(error.message, 'error'); }
+  } catch (error) { log(error.message.split('\n')[0], 'error'); }
 });
 
 els.refreshSymbolsBtn.addEventListener('click', async () => {
@@ -437,7 +465,7 @@ els.refreshSymbolsBtn.addEventListener('click', async () => {
 
 els.runBacktestBtn.addEventListener('click', async () => {
   try {
-    const result = await api('/api/run-backtest', { method: 'POST', body: JSON.stringify({ symbols: selectedSymbols(), overrides: collectConfigForm() }) });
+    const result = await runAsyncJob('Backtest', '/api/run-backtest', { symbols: selectedSymbols(), overrides: collectConfigForm() });
     state.latestRunId = result.run_id;
     renderMetrics(result.summary, 'backtest');
     drawEquityCurve(result.equity_curve);
@@ -446,12 +474,12 @@ els.runBacktestBtn.addEventListener('click', async () => {
     els.runBadge.textContent = `Backtest #${result.run_id}`;
     state.viewMode = 'backtest';
     log(`Backtest завершён: run #${result.run_id}, trades=${result.summary.trades_count}, signals=${result.signals_count}`, 'success');
-  } catch (error) { log(error.message, 'error'); }
+  } catch (error) { log(error.message.split('\n')[0], 'error'); }
 });
 
 els.runWalkforwardBtn.addEventListener('click', async () => {
   try {
-    const result = await api('/api/run-walkforward', { method: 'POST', body: JSON.stringify({ symbols: selectedSymbols(), overrides: collectConfigForm() }) });
+    const result = await runAsyncJob('Walk-forward', '/api/run-walkforward', { symbols: selectedSymbols(), overrides: collectConfigForm() });
     state.latestWalkforwardId = result.walkforward_run_id;
     renderMetrics(result.summary, 'walk-forward');
     drawEquityCurve(result.equity_curve);
@@ -460,7 +488,7 @@ els.runWalkforwardBtn.addEventListener('click', async () => {
     els.runBadge.textContent = `Walk-forward #${result.walkforward_run_id}`;
     state.viewMode = 'walk-forward';
     log(`Walk-forward завершён: run #${result.walkforward_run_id}, segments=${result.segments.length}`, 'success');
-  } catch (error) { log(error.message, 'error'); }
+  } catch (error) { log(error.message.split('\n')[0], 'error'); }
 });
 
 els.createPaperBtn.addEventListener('click', async () => {
@@ -495,6 +523,16 @@ els.paperStartBtn.addEventListener('click', async () => {
     await api(`/api/paper-sessions/${state.latestPaperSessionId}/start`, { method: 'POST' });
     await loadPaperSession(state.latestPaperSessionId);
     log('Background replay запущен', 'success');
+    if (window.paperPollTimer) clearInterval(window.paperPollTimer);
+    window.paperPollTimer = setInterval(async () => {
+      try {
+        const payload = await loadPaperSession(state.latestPaperSessionId);
+        if (!payload.session.is_background_running) {
+          clearInterval(window.paperPollTimer);
+          window.paperPollTimer = null;
+        }
+      } catch (_) {}
+    }, 1500);
   } catch (error) { log(error.message, 'error'); }
 });
 
@@ -502,6 +540,7 @@ els.paperStopBtn.addEventListener('click', async () => {
   try {
     if (!state.latestPaperSessionId) throw new Error('Нет paper-сессии');
     await api(`/api/paper-sessions/${state.latestPaperSessionId}/stop`, { method: 'POST' });
+    if (window.paperPollTimer) { clearInterval(window.paperPollTimer); window.paperPollTimer = null; }
     await loadPaperSession(state.latestPaperSessionId);
     log('Background replay остановлен', 'warn');
   } catch (error) { log(error.message, 'error'); }

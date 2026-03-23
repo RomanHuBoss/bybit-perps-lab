@@ -8,7 +8,8 @@ from pathlib import Path
 from flask import Flask, Response, jsonify, render_template, request
 
 from config import APP_CONFIG, DEFAULT_SETTINGS
-from database import ensure_database, get_settings, update_settings, list_live_orders
+from database import ensure_database, get_settings, list_live_orders, update_settings
+from services.background_jobs import job_manager
 from services.backtest_engine import BacktestEngine, get_run_details, list_runs
 from services.data_service import (
     DataValidationError,
@@ -35,6 +36,15 @@ def create_app() -> Flask:
     @app.get('/api/health')
     def health():
         return jsonify({'status': 'ok'})
+
+    @app.get('/api/jobs')
+    def api_jobs_list():
+        limit = int(request.args.get('limit', 20))
+        return jsonify({'jobs': job_manager.list(limit=limit)})
+
+    @app.get('/api/jobs/<job_id>')
+    def api_job_details(job_id: str):
+        return jsonify(job_manager.get(job_id))
 
     @app.get('/api/config')
     def api_get_config():
@@ -69,8 +79,14 @@ def create_app() -> Flask:
         symbols = payload.get('symbols') or get_settings().get('demo_symbols', DEFAULT_SETTINGS['demo_symbols'])
         days = int(payload.get('days', 20))
         interval = str(payload.get('interval', '5'))
-        result = generate_demo_market_data(symbols=symbols, interval=interval, days=days)
-        return jsonify(result)
+        if payload.get('async'):
+            job = job_manager.submit(
+                'load-demo-data',
+                lambda: generate_demo_market_data(symbols=symbols, interval=interval, days=days),
+                meta={'symbols': symbols, 'days': days, 'interval': interval},
+            )
+            return jsonify({'job_id': job.id, 'status': job.status, 'kind': job.kind})
+        return jsonify(generate_demo_market_data(symbols=symbols, interval=interval, days=days))
 
     @app.post('/api/sync-bybit-public')
     def api_sync_bybit_public():
@@ -78,8 +94,14 @@ def create_app() -> Flask:
         symbols = payload.get('symbols') or ['BTCUSDT', 'ETHUSDT']
         interval = str(payload.get('interval', '5'))
         days = int(payload.get('days', 14))
-        result = sync_bybit_public(symbols=symbols, interval=interval, days=days)
-        return jsonify(result)
+        if payload.get('async'):
+            job = job_manager.submit(
+                'sync-bybit-public',
+                lambda: sync_bybit_public(symbols=symbols, interval=interval, days=days),
+                meta={'symbols': symbols, 'days': days, 'interval': interval},
+            )
+            return jsonify({'job_id': job.id, 'status': job.status, 'kind': job.kind})
+        return jsonify(sync_bybit_public(symbols=symbols, interval=interval, days=days))
 
     @app.post('/api/import-csv')
     def api_import_csv():
@@ -99,8 +121,14 @@ def create_app() -> Flask:
         symbols = payload.get('symbols') or list_symbols('5')
         settings = get_settings()
         settings.update(payload.get('overrides', {}))
-        engine = BacktestEngine(settings)
-        return jsonify(engine.run(symbols=symbols))
+        if payload.get('async'):
+            job = job_manager.submit(
+                'run-backtest',
+                lambda: BacktestEngine(settings).run(symbols=symbols),
+                meta={'symbols': symbols},
+            )
+            return jsonify({'job_id': job.id, 'status': job.status, 'kind': job.kind})
+        return jsonify(BacktestEngine(settings).run(symbols=symbols))
 
     @app.get('/api/runs')
     def api_runs():
@@ -122,8 +150,14 @@ def create_app() -> Flask:
         symbols = payload.get('symbols') or list_symbols('5')
         settings = get_settings()
         settings.update(payload.get('overrides', {}))
-        engine = WalkForwardEngine(settings)
-        return jsonify(engine.run(symbols=symbols))
+        if payload.get('async'):
+            job = job_manager.submit(
+                'run-walkforward',
+                lambda: WalkForwardEngine(settings).run(symbols=symbols),
+                meta={'symbols': symbols},
+            )
+            return jsonify({'job_id': job.id, 'status': job.status, 'kind': job.kind})
+        return jsonify(WalkForwardEngine(settings).run(symbols=symbols))
 
     @app.get('/api/walkforward-runs')
     def api_walkforward_runs():
@@ -297,4 +331,4 @@ app = create_app()
 
 
 if __name__ == '__main__':
-    app.run(host='127.0.0.1', port=8010, debug=True)
+    app.run(host='127.0.0.1', port=8010, debug=False, threaded=True, use_reloader=False)

@@ -204,6 +204,16 @@ CREATE TABLE IF NOT EXISTS live_order_logs (
     plan_json TEXT NOT NULL,
     response_json TEXT NOT NULL
 );
+
+
+CREATE INDEX IF NOT EXISTS idx_candles_interval_symbol_ts ON candles(interval, symbol, ts);
+CREATE INDEX IF NOT EXISTS idx_funding_symbol_ts ON funding_rates(symbol, ts);
+CREATE INDEX IF NOT EXISTS idx_trades_run_id ON trades(run_id, entry_ts);
+CREATE INDEX IF NOT EXISTS idx_equity_curve_run_id_ts ON equity_curve(run_id, ts);
+CREATE INDEX IF NOT EXISTS idx_signals_run_id_ts ON signals(run_id, ts);
+CREATE INDEX IF NOT EXISTS idx_paper_trades_session_ts ON paper_trades(paper_session_id, entry_ts);
+CREATE INDEX IF NOT EXISTS idx_paper_equity_session_ts ON paper_equity_curve(paper_session_id, ts);
+CREATE INDEX IF NOT EXISTS idx_paper_events_session_id ON paper_events(paper_session_id, id);
 '''
 
 

@@ -191,3 +191,12 @@ curl -X POST http://127.0.0.1:8010/api/tiny-live/execute \
 - и tiny live / dry-run отправки,
 
 он уже пригоден.
+
+
+## v4.1 performance patch
+
+- background jobs for demo load, Bybit public sync, backtest, walk-forward
+- incremental paper replay engine with in-memory prepared market cache
+- reduced paper payload size via downsampled equity and limited rows
+- threaded Flask launch for smoother local UX
+- added SQLite indexes for faster reads
