@@ -35,6 +35,8 @@ button.primary { background: linear-gradient(135deg, #2a6af0, #6ca4ff); color: w
 input[type="text"], input[type="number"], input:not([type]), input[type="file"] {
   width: 100%;
   margin-top: 6px;
+  min-height: 38px;
+  height: 38px;
   border-radius: 10px;
   border: 1px solid var(--line);
   padding: 8px 10px;
@@ -103,9 +105,12 @@ h2 { font-size: 20px; }
 .bottom-grid { align-items: start; }
 label span { display: block; color: var(--muted); font-size: 12px; }
 .check {
-  display: flex;
+  display: inline-flex;
   align-items: center;
+  align-self: start;
   gap: 8px;
+  min-height: 38px;
+  width: fit-content;
   background: rgba(255,255,255,0.02);
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -230,6 +235,7 @@ tr:hover td { background: rgba(255,255,255,0.02); }
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
+  align-items: start;
 }
 
 .json-box {
@@ -269,7 +275,8 @@ button.danger:hover {
 }
 
 .section-hint {
-  margin: 4px 0 0;
+  margin: 9px 0 0;
+  line-height: 1.45;
 }
 
 .prep-grid {
@@ -283,9 +290,10 @@ button.danger:hover {
 
 .multi-select-toggle {
   width: 100%;
-  min-height: 44px;
+  min-height: 38px;
+  height: 38px;
   text-align: left;
-  padding: 0 38px 0 12px;
+  padding: 0 34px 0 10px;
   position: relative;
   background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.02));
   display: flex;
