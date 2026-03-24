@@ -20,6 +20,7 @@ from services.data_service import (
     sync_bybit_public,
 )
 from services.live_adapter import live_adapter
+from services.optimizer_engine import OptimizerEngine, get_optimizer_details, list_optimizer_runs
 from services.paper_engine import paper_manager
 from services.trade_service import TradePlanner
 from services.walkforward_engine import WalkForwardEngine, get_walkforward_details, list_walkforward_runs
@@ -152,6 +153,53 @@ def create_app() -> Flask:
     def api_export_run_trades(run_id: int):
         details = get_run_details(run_id)
         return _csv_response(f'run_{run_id}_trades.csv', details['trades'])
+
+    @app.post('/api/run-optimizer')
+    def api_run_optimizer():
+        payload = request.get_json(force=True, silent=True) or {}
+        symbols = payload.get('symbols') or list_symbols('5')
+        settings = get_settings()
+        settings.update(payload.get('overrides', {}))
+        trials = int(payload.get('trials', settings.get('optimizer_trials', 24)))
+        if payload.get('async'):
+            job = job_manager.submit(
+                'run-optimizer',
+                lambda: OptimizerEngine(settings).run(symbols=symbols, trials=trials),
+                meta={'symbols': symbols, 'trials': trials},
+            )
+            return jsonify({'job_id': job.id, 'status': job.status, 'kind': job.kind})
+        return jsonify(OptimizerEngine(settings).run(symbols=symbols, trials=trials))
+
+    @app.get('/api/optimizer-runs')
+    def api_optimizer_runs():
+        limit = int(request.args.get('limit', 20))
+        return jsonify({'runs': list_optimizer_runs(limit=limit)})
+
+    @app.get('/api/optimizer-runs/<int:run_id>')
+    def api_optimizer_details(run_id: int):
+        return jsonify(get_optimizer_details(run_id))
+
+    @app.get('/api/optimizer-runs/<int:run_id>/export/trials.csv')
+    def api_export_optimizer_trials(run_id: int):
+        details = get_optimizer_details(run_id)
+        rows = []
+        for trial in details['trials']:
+            row = {
+                'trial_no': trial['trial_no'],
+                'score': trial['score'],
+                **trial['summary'],
+                **trial['params'],
+            }
+            rows.append(row)
+        return _csv_response(f'optimizer_{run_id}_trials.csv', rows)
+
+    @app.post('/api/optimizer-runs/<int:run_id>/apply-best')
+    def api_apply_optimizer_best(run_id: int):
+        details = get_optimizer_details(run_id)
+        merged = get_settings()
+        merged.update(details['best_params'])
+        saved = update_settings(merged)
+        return jsonify({'applied': details['best_params'], 'config': saved})
 
     @app.post('/api/run-walkforward')
     def api_run_walkforward():

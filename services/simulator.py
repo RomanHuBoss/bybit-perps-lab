@@ -210,12 +210,17 @@ def simulate_market(
     symbols: list[str],
     starting_equity: float | None = None,
     close_open_positions_at_end: bool = True,
+    trade_start_ts: str | pd.Timestamp | None = None,
 ) -> dict[str, Any]:
     symbols = [s.upper() for s in symbols]
     if candles.empty:
         raise ValueError('No candle data provided for simulation.')
     prepared = prepare_market(settings, candles, funding, symbols)
     bar_maps = {symbol: df.set_index('ts').sort_index() for symbol, df in prepared.symbol_bars.items()}
+    trade_start_cutoff = None
+    if trade_start_ts is not None:
+        trade_start_cutoff = pd.Timestamp(trade_start_ts)
+        trade_start_cutoff = trade_start_cutoff.tz_localize('UTC') if trade_start_cutoff.tzinfo is None else trade_start_cutoff.tz_convert('UTC')
 
     equity = float(starting_equity if starting_equity is not None else settings.get('starting_equity', 10000.0))
     starting_equity = equity
@@ -341,12 +346,16 @@ def simulate_market(
                 continue
             current_close = float(bar_df.loc[ts]['close'])
             open_mark_to_market += SimulationHelpers.leg_pnl(pos, current_close, pos.qty)
-        equity_curve.append({'ts': ts, 'equity': round(equity + open_mark_to_market, 8)})
+        if trade_start_cutoff is None or ts >= trade_start_cutoff:
+            equity_curve.append({'ts': ts, 'equity': round(equity + open_mark_to_market, 8)})
 
         if day in disabled_days:
             continue
         if equity <= starting_equity * (1.0 - daily_loss_limit):
             disabled_days.add(day)
+            continue
+
+        if trade_start_cutoff is not None and ts < trade_start_cutoff:
             continue
 
         ranked_signals: list[StrategySignal] = []
@@ -428,6 +437,12 @@ def simulate_market(
                 equity += cash_delta
                 positions.pop(symbol, None)
             equity_curve.append({'ts': last_ts, 'equity': round(equity, 8)})
+
+    if trade_start_cutoff is not None:
+        trades = [trade for trade in trades if pd.Timestamp(trade['entry_ts']).tz_convert('UTC') >= trade_start_cutoff]
+        equity_curve = [row for row in equity_curve if pd.Timestamp(row['ts']).tz_convert('UTC') >= trade_start_cutoff]
+        if not equity_curve and trade_start_cutoff is not None:
+            equity_curve = [{'ts': trade_start_cutoff, 'equity': round(starting_equity, 8)}]
 
     trades_df = pd.DataFrame(trades)
     equity_df = pd.DataFrame(equity_curve)

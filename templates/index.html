@@ -58,40 +58,64 @@
       </section>
 
       <section class="panel compact">
+        <h2>Optimizer по паре</h2>
+        <div class="stack">
+          <label class="picker-field">
+            <span>Символ</span>
+            <div id="optimizerPicker" class="multi-select single-select"></div>
+            <p class="hint" id="optimizerPickerHint">Каталог Bybit linear USDT, один символ для подбора параметров.</p>
+          </label>
+          <div class="grid two prep-grid">
+            <label><span>Trials</span><input id="optimizerTrials" type="number" min="4" step="1" value="24" /></label>
+            <label><span>Сегментов</span><input id="optimizerMaxSegments" type="number" min="2" step="1" value="8" /></label>
+            <label><span>Train, баров</span><input id="optimizerTrainBars" type="number" min="200" step="1" value="2016" /></label>
+            <label><span>Test, баров</span><input id="optimizerTestBars" type="number" min="50" step="1" value="576" /></label>
+            <label><span>Шаг окна</span><input id="optimizerStepBars" type="number" min="50" step="1" value="576" /></label>
+            <label><span>Мин. сделок</span><input id="optimizerMinTrades" type="number" min="1" step="1" value="12" /></label>
+          </div>
+          <div class="actions small-actions">
+            <button id="runOptimizerBtn">Запустить optimizer</button>
+            <button id="applyBestOptimizerBtn">Применить лучший набор</button>
+          </div>
+          <p class="hint">Optimizer делает адаптивный поиск параметров по одной паре и проверяет кандидатов на rolling train/test окнах.</p>
+        </div>
+      </section>
+
+      <section class="panel compact">
         <h2>Параметры</h2>
         <form id="configForm" class="stack">
           <div class="grid two">
             <label><span>Начальный капитал</span><input name="starting_equity" type="number" step="100" /></label>
-            <label><span>Risk per trade</span><input name="risk_per_trade" type="number" step="0.001" /></label>
+            <label><span>Риск на сделку</span><input name="risk_per_trade" type="number" step="0.001" /></label>
             <label><span>Дневной лимит убытка</span><input name="daily_loss_limit" type="number" step="0.001" /></label>
             <label><span>Макс. позиций</span><input name="max_concurrent_positions" type="number" step="1" /></label>
             <label><span>Макс. в одну сторону</span><input name="max_same_side_positions" type="number" step="1" /></label>
             <label><span>Макс. плечо</span><input name="max_leverage" type="number" step="0.1" /></label>
-            <label><span>Maker fee</span><input name="entry_fee_rate" type="number" step="0.00001" /></label>
-            <label><span>Stop fee</span><input name="exit_fee_rate_stop" type="number" step="0.00001" /></label>
-            <label><span>TP fee</span><input name="exit_fee_rate_take_profit" type="number" step="0.00001" /></label>
-            <label><span>Funding cap abs</span><input name="funding_rate_cap_abs" type="number" step="0.00001" /></label>
-            <label><span>Entry slippage bps</span><input name="entry_slippage_bps" type="number" step="0.1" /></label>
-            <label><span>Stop slippage bps</span><input name="exit_slippage_bps_stop" type="number" step="0.1" /></label>
-            <label><span>TP slippage bps</span><input name="exit_slippage_bps_tp" type="number" step="0.1" /></label>
-            <label><span>Volume multiplier</span><input name="volume_multiplier" type="number" step="0.1" /></label>
-            <label><span>Trend strength min</span><input name="trend_strength_min" type="number" step="0.0001" /></label>
-            <label><span>Reversion z-score</span><input name="reversion_zscore_threshold" type="number" step="0.1" /></label>
-            <label><span>Volatility score min</span><input name="volatility_score_min" type="number" step="0.01" /></label>
-            <label><span>Volatility score max</span><input name="volatility_score_max" type="number" step="0.01" /></label>
-            <label><span>Walk-forward train bars</span><input name="walkforward_train_bars" type="number" step="1" /></label>
-            <label><span>Walk-forward test bars</span><input name="walkforward_test_bars" type="number" step="1" /></label>
-            <label><span>Walk-forward step bars</span><input name="walkforward_step_bars" type="number" step="1" /></label>
-            <label><span>Walk-forward max segments</span><input name="walkforward_max_segments" type="number" step="1" /></label>
-            <label><span>Paper poll seconds</span><input name="paper_poll_seconds" type="number" step="0.5" /></label>
-            <label><span>Paper auto steps</span><input name="paper_auto_steps" type="number" step="1" /></label>
+            <label><span>Комиссия maker</span><input name="entry_fee_rate" type="number" step="0.00001" /></label>
+            <label><span>Комиссия стопа</span><input name="exit_fee_rate_stop" type="number" step="0.00001" /></label>
+            <label><span>Комиссия тейка</span><input name="exit_fee_rate_take_profit" type="number" step="0.00001" /></label>
+            <label><span>Абс. лимит funding</span><input name="funding_rate_cap_abs" type="number" step="0.00001" /></label>
+            <label><span>Проскальз. входа, б.п.</span><input name="entry_slippage_bps" type="number" step="0.1" /></label>
+            <label><span>Проскальз. стопа, б.п.</span><input name="exit_slippage_bps_stop" type="number" step="0.1" /></label>
+            <label><span>Проскальз. тейка, б.п.</span><input name="exit_slippage_bps_tp" type="number" step="0.1" /></label>
+            <label><span>Множитель объёма</span><input name="volume_multiplier" type="number" step="0.1" /></label>
+            <label><span>Мин. сила тренда</span><input name="trend_strength_min" type="number" step="0.0001" /></label>
+            <label><span>Z-score возврата</span><input name="reversion_zscore_threshold" type="number" step="0.1" /></label>
+            <label><span>Мин. score волат.</span><input name="volatility_score_min" type="number" step="0.01" /></label>
+            <label><span>Макс. score волат.</span><input name="volatility_score_max" type="number" step="0.01" /></label>
+            <label><span>Train-окно, баров</span><input name="walkforward_train_bars" type="number" step="1" /></label>
+            <label><span>Test-окно, баров</span><input name="walkforward_test_bars" type="number" step="1" /></label>
+            <label><span>Шаг окна, баров</span><input name="walkforward_step_bars" type="number" step="1" /></label>
+            <label><span>Макс. сегментов WF</span><input name="walkforward_max_segments" type="number" step="1" /></label>
+            <label><span>Poll paper, сек</span><input name="paper_poll_seconds" type="number" step="0.5" /></label>
+            <label><span>Автошаги paper</span><input name="paper_auto_steps" type="number" step="1" /></label>
           </div>
           <div class="grid two">
             <label class="check"><input name="trend_enabled" type="checkbox" /><span>Trend-модуль</span></label>
             <label class="check"><input name="reversion_enabled" type="checkbox" /><span>Reversion-модуль</span></label>
-            <label class="check"><input name="regime_filter_enabled" type="checkbox" /><span>Regime filter</span></label>
-            <label class="check"><input name="volatility_filter_enabled" type="checkbox" /><span>Volatility gate</span></label>
-            <label class="check"><input name="no_trade_filter_enabled" type="checkbox" /><span>No-trade filter</span></label>
+            <label class="check"><input name="regime_filter_enabled" type="checkbox" /><span>Фильтр режима</span></label>
+            <label class="check"><input name="volatility_filter_enabled" type="checkbox" /><span>Фильтр волатильности</span></label>
+            <label class="check"><input name="no_trade_filter_enabled" type="checkbox" /><span>Фильтр no-trade</span></label>
           </div>
           <button type="submit">Сохранить конфиг</button>
         </form>
@@ -147,6 +171,7 @@
               <span class="badge" id="runBadge">Нет запуска</span>
               <button id="loadLatestRunBtn">Последний backtest</button>
               <button id="loadLatestWfBtn">Последний walk-forward</button>
+              <button id="loadLatestOptimizerBtn">Последний optimizer</button>
             </div>
           </div>
           <canvas id="equityCanvas" width="980" height="360"></canvas>
@@ -166,6 +191,7 @@
               <button id="exportRunBtn">CSV trades</button>
               <button id="exportWfBtn">CSV segments</button>
               <button id="exportPaperBtn">CSV paper</button>
+              <button id="exportOptimizerBtn">CSV optimizer</button>
             </div>
           </div>
           <div class="table-wrap">

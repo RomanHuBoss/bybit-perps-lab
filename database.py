@@ -188,6 +188,36 @@ CREATE TABLE IF NOT EXISTS paper_events (
     FOREIGN KEY (paper_session_id) REFERENCES paper_sessions(id)
 );
 
+
+CREATE TABLE IF NOT EXISTS optimizer_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    config_json TEXT NOT NULL,
+    symbols_json TEXT NOT NULL,
+    status TEXT NOT NULL,
+    search_method TEXT NOT NULL,
+    trials_count INTEGER NOT NULL,
+    train_bars INTEGER NOT NULL,
+    test_bars INTEGER NOT NULL,
+    step_bars INTEGER NOT NULL,
+    max_segments INTEGER NOT NULL,
+    best_score REAL NOT NULL,
+    best_params_json TEXT NOT NULL,
+    best_summary_json TEXT NOT NULL,
+    notes_json TEXT
+);
+
+CREATE TABLE IF NOT EXISTS optimizer_trials (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    optimizer_run_id INTEGER NOT NULL,
+    trial_no INTEGER NOT NULL,
+    score REAL NOT NULL,
+    params_json TEXT NOT NULL,
+    summary_json TEXT NOT NULL,
+    notes_json TEXT,
+    FOREIGN KEY (optimizer_run_id) REFERENCES optimizer_runs(id)
+);
+
 CREATE TABLE IF NOT EXISTS live_order_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at TEXT NOT NULL,
@@ -214,6 +244,8 @@ CREATE INDEX IF NOT EXISTS idx_signals_run_id_ts ON signals(run_id, ts);
 CREATE INDEX IF NOT EXISTS idx_paper_trades_session_ts ON paper_trades(paper_session_id, entry_ts);
 CREATE INDEX IF NOT EXISTS idx_paper_equity_session_ts ON paper_equity_curve(paper_session_id, ts);
 CREATE INDEX IF NOT EXISTS idx_paper_events_session_id ON paper_events(paper_session_id, id);
+CREATE INDEX IF NOT EXISTS idx_optimizer_runs_created_at ON optimizer_runs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_optimizer_trials_run_score ON optimizer_trials(optimizer_run_id, score DESC, trial_no);
 '''
 
 

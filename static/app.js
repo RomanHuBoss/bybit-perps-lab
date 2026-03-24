@@ -5,6 +5,8 @@ const state = {
   selectedSymbols: new Set(),
   latestRunId: null,
   latestWalkforwardId: null,
+  latestOptimizerId: null,
+  latestOptimizerBestParams: null,
   latestPaperSessionId: null,
   config: {},
   viewMode: 'idle',
@@ -17,12 +19,16 @@ const els = {
   refreshSymbolsBtn: document.getElementById('refreshSymbolsBtn'),
   runBacktestBtn: document.getElementById('runBacktestBtn'),
   runWalkforwardBtn: document.getElementById('runWalkforwardBtn'),
+  runOptimizerBtn: document.getElementById('runOptimizerBtn'),
+  applyBestOptimizerBtn: document.getElementById('applyBestOptimizerBtn'),
   createPaperBtn: document.getElementById('createPaperBtn'),
   loadLatestRunBtn: document.getElementById('loadLatestRunBtn'),
   loadLatestWfBtn: document.getElementById('loadLatestWfBtn'),
+  loadLatestOptimizerBtn: document.getElementById('loadLatestOptimizerBtn'),
   exportRunBtn: document.getElementById('exportRunBtn'),
   exportWfBtn: document.getElementById('exportWfBtn'),
   exportPaperBtn: document.getElementById('exportPaperBtn'),
+  exportOptimizerBtn: document.getElementById('exportOptimizerBtn'),
   paperStartBtn: document.getElementById('paperStartBtn'),
   paperStepBtn: document.getElementById('paperStepBtn'),
   paperStopBtn: document.getElementById('paperStopBtn'),
@@ -34,9 +40,17 @@ const els = {
   csvPickerHint: document.getElementById('csvPickerHint'),
   syncPicker: document.getElementById('syncPicker'),
   syncPickerHint: document.getElementById('syncPickerHint'),
+  optimizerPicker: document.getElementById('optimizerPicker'),
+  optimizerPickerHint: document.getElementById('optimizerPickerHint'),
   syncDays: document.getElementById('syncDays'),
   tinyPicker: document.getElementById('tinyPicker'),
   tinyPickerHint: document.getElementById('tinyPickerHint'),
+  optimizerTrials: document.getElementById('optimizerTrials'),
+  optimizerTrainBars: document.getElementById('optimizerTrainBars'),
+  optimizerTestBars: document.getElementById('optimizerTestBars'),
+  optimizerStepBars: document.getElementById('optimizerStepBars'),
+  optimizerMaxSegments: document.getElementById('optimizerMaxSegments'),
+  optimizerMinTrades: document.getElementById('optimizerMinTrades'),
   paperName: document.getElementById('paperName'),
   paperSteps: document.getElementById('paperSteps'),
   symbolsList: document.getElementById('symbolsList'),
@@ -274,7 +288,8 @@ function ensurePickerDefaults() {
   }
   setSingleDefault(state.pickers.csv, [loadSavedPickerSelection('csv')[0], availableSymbols[0], demoDefaults[0], 'BTCUSDT'].filter((symbol) => catalogSymbols.has(symbol) || symbol === 'BTCUSDT'));
   setSingleDefault(state.pickers.tiny, [loadSavedPickerSelection('tiny')[0], 'DOGEUSDT', availableSymbols[0], demoDefaults[0]].filter((symbol) => catalogSymbols.has(symbol)));
-  ['demo', 'sync', 'csv', 'tiny'].forEach(savePickerSelection);
+  setSingleDefault(state.pickers.optimizer, [loadSavedPickerSelection('optimizer')[0], availableSymbols[0], demoDefaults[0], 'BTCUSDT'].filter((symbol) => catalogSymbols.has(symbol) || symbol === 'BTCUSDT'));
+  ['demo', 'sync', 'csv', 'tiny', 'optimizer'].forEach(savePickerSelection);
 }
 
 function renderPicker(key) {
@@ -353,6 +368,7 @@ function updateCatalogHints() {
   if (els.syncPickerHint) els.syncPickerHint.textContent = `${baseHint} Для sync можно выбрать несколько символов.`;
   if (els.csvPickerHint) els.csvPickerHint.textContent = `${baseHint} Для CSV нужен один символ — метка импортируемого файла.`;
   if (els.tinyPickerHint) els.tinyPickerHint.textContent = `${baseHint} Для tiny live используется один символ.`;
+  if (els.optimizerPickerHint) els.optimizerPickerHint.textContent = `${baseHint} Для optimizer используется один символ и rolling train/test проверка.`;
 }
 
 function initPickers() {
@@ -360,6 +376,7 @@ function initPickers() {
   buildPicker(els.syncPicker, 'sync', { multi: true, placeholder: 'Выбрать символы' });
   buildPicker(els.csvPicker, 'csv', { multi: false, placeholder: 'Выбрать символ' });
   buildPicker(els.tinyPicker, 'tiny', { multi: false, placeholder: 'Выбрать символ' });
+  buildPicker(els.optimizerPicker, 'optimizer', { multi: false, placeholder: 'Выбрать символ' });
 }
 
 document.addEventListener('click', (event) => {
@@ -391,6 +408,17 @@ function collectConfigForm() {
     else out[input.name] = input.value;
   });
   return out;
+}
+
+function collectOptimizerOverrides() {
+  return {
+    optimizer_trials: Number(els.optimizerTrials?.value || 24),
+    optimizer_train_bars: Number(els.optimizerTrainBars?.value || 2016),
+    optimizer_test_bars: Number(els.optimizerTestBars?.value || 576),
+    optimizer_step_bars: Number(els.optimizerStepBars?.value || 576),
+    optimizer_max_segments: Number(els.optimizerMaxSegments?.value || 8),
+    optimizer_min_trades_test: Number(els.optimizerMinTrades?.value || 12),
+  };
 }
 
 function renderSymbols() {
@@ -524,6 +552,27 @@ function renderWalkforwardSegments(segments = []) {
   });
 }
 
+
+function renderOptimizerTrials(trials = []) {
+  setPrimaryHeader(['#', 'Score', 'Return', 'Max DD', 'PF', 'Trades', 'Stop rate', 'Params']);
+  els.primaryTbody.innerHTML = '';
+  trials.forEach((trial) => {
+    const summary = trial.summary || {};
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${trial.trial_no}</td>
+      <td>${formatNum(trial.score, 3)}</td>
+      <td class="${Number(summary.total_return_pct) >= 0 ? 'pnl-pos' : 'pnl-neg'}">${formatNum(summary.total_return_pct, 2)}%</td>
+      <td>${formatNum(summary.max_drawdown_pct, 2)}%</td>
+      <td>${summary.profit_factor ?? '—'}</td>
+      <td>${summary.trades_count ?? '—'}</td>
+      <td>${formatNum(summary.stop_rate, 1)}%</td>
+      <td>${JSON.stringify(trial.params)}</td>
+    `;
+    els.primaryTbody.appendChild(tr);
+  });
+}
+
 function renderPaperTrades(trades = []) {
   setPrimaryHeader(['Symbol', 'Regime', 'Side', 'Entry', 'Exit', 'Net PnL', 'R', 'Reason']);
   els.primaryTbody.innerHTML = '';
@@ -579,6 +628,7 @@ async function refreshSymbols({ refreshCatalog = false } = {}) {
   renderPicker('sync');
   renderPicker('csv');
   renderPicker('tiny');
+  renderPicker('optimizer');
   updateCatalogHints();
 
   const preferred = selectedPickerSymbols('demo').filter((symbol) => state.symbols.includes(symbol));
@@ -597,7 +647,14 @@ async function refreshSymbols({ refreshCatalog = false } = {}) {
 }
 
 async function loadConfig() {
-  fillConfigForm(await api('/api/config'));
+  const config = await api('/api/config');
+  fillConfigForm(config);
+  if (els.optimizerTrials) els.optimizerTrials.value = config.optimizer_trials ?? 24;
+  if (els.optimizerTrainBars) els.optimizerTrainBars.value = config.optimizer_train_bars ?? 2016;
+  if (els.optimizerTestBars) els.optimizerTestBars.value = config.optimizer_test_bars ?? 576;
+  if (els.optimizerStepBars) els.optimizerStepBars.value = config.optimizer_step_bars ?? 576;
+  if (els.optimizerMaxSegments) els.optimizerMaxSegments.value = config.optimizer_max_segments ?? 8;
+  if (els.optimizerMinTrades) els.optimizerMinTrades.value = config.optimizer_min_trades_test ?? 12;
 }
 
 async function loadLiveStatus() {
@@ -678,6 +735,29 @@ async function loadLatestWalkforward() {
   els.runBadge.textContent = `Walk-forward #${run.id}`;
   renderSecondaryRows(details.segments.map((seg) => ({ created_at: seg.test_end_ts, level: `segment ${seg.segment_no}`, message: seg.best_params_json })), 'events');
   state.viewMode = 'walk-forward';
+}
+
+
+async function loadLatestOptimizer() {
+  const data = await api('/api/optimizer-runs?limit=1');
+  const run = data.runs?.[0];
+  if (!run) {
+    log('Optimizer-запусков пока нет', 'warn');
+    return;
+  }
+  state.latestOptimizerId = run.id;
+  const details = await api(`/api/optimizer-runs/${run.id}`);
+  state.latestOptimizerBestParams = details.best_params || null;
+  renderMetrics(details.best_summary, 'optimizer');
+  drawEquityCurve(details.best_equity_curve || []);
+  renderOptimizerTrials(details.trials || []);
+  renderSecondaryRows((details.segments || []).map((seg) => ({
+    created_at: seg.test_end_ts,
+    level: `seg ${seg.segment_no}`,
+    message: `ret=${formatNum(seg.summary?.total_return_pct, 2)}% pf=${seg.summary?.profit_factor ?? '—'} trades=${seg.summary?.trades_count ?? '—'}`,
+  })), 'events');
+  els.runBadge.textContent = `Optimizer #${run.id}`;
+  state.viewMode = 'optimizer';
 }
 
 async function loadPaperSession(sessionId = state.latestPaperSessionId) {
@@ -765,6 +845,41 @@ els.runWalkforwardBtn.addEventListener('click', async () => {
   } catch (error) { log(error.message.split('\n')[0], 'error'); }
 });
 
+
+els.runOptimizerBtn?.addEventListener('click', async () => {
+  try {
+    const symbol = selectedPickerValue('optimizer');
+    if (!symbol) throw new Error('Выбери символ для optimizer');
+    const overrides = { ...collectConfigForm(), ...collectOptimizerOverrides() };
+    const trials = Number(els.optimizerTrials?.value || 24);
+    const result = await runAsyncJob('Optimizer', '/api/run-optimizer', { symbols: [symbol], trials, overrides });
+    state.latestOptimizerId = result.optimizer_run_id;
+    state.latestOptimizerBestParams = result.best_params || null;
+    renderMetrics(result.best_summary, 'optimizer');
+    drawEquityCurve(result.best_equity_curve || []);
+    renderOptimizerTrials(result.trials || []);
+    renderSecondaryRows((result.segments || []).map((seg) => ({
+      created_at: seg.test_end_ts,
+      level: `seg ${seg.segment_no}`,
+      message: `ret=${formatNum(seg.summary?.total_return_pct, 2)}% pf=${seg.summary?.profit_factor ?? '—'} trades=${seg.summary?.trades_count ?? '—'}`,
+    })), 'events');
+    els.runBadge.textContent = `Optimizer #${result.optimizer_run_id}`;
+    state.viewMode = 'optimizer';
+    log(`Optimizer завершён: run #${result.optimizer_run_id}, лучший score=${formatNum(result.best_score, 3)}`, 'success');
+  } catch (error) {
+    log(error.message.split('\n')[0], 'error');
+  }
+});
+
+els.applyBestOptimizerBtn?.addEventListener('click', async () => {
+  try {
+    if (!state.latestOptimizerId) throw new Error('Сначала запусти optimizer');
+    const payload = await api(`/api/optimizer-runs/${state.latestOptimizerId}/apply-best`, { method: 'POST' });
+    fillConfigForm(payload.config);
+    log('Лучший набор optimizer применён в конфиг', 'success');
+  } catch (error) { log(error.message, 'error'); }
+});
+
 els.createPaperBtn.addEventListener('click', async () => {
   try {
     const result = await api('/api/paper-sessions', {
@@ -832,6 +947,10 @@ els.loadLatestWfBtn.addEventListener('click', async () => {
   try { await loadLatestWalkforward(); } catch (error) { log(error.message, 'error'); }
 });
 
+els.loadLatestOptimizerBtn?.addEventListener('click', async () => {
+  try { await loadLatestOptimizer(); } catch (error) { log(error.message, 'error'); }
+});
+
 els.exportRunBtn.addEventListener('click', () => {
   if (!state.latestRunId) return log('Нет backtest run для экспорта', 'warn');
   window.open(`/api/runs/${state.latestRunId}/export/trades.csv`, '_blank');
@@ -845,6 +964,11 @@ els.exportWfBtn.addEventListener('click', () => {
 els.exportPaperBtn.addEventListener('click', () => {
   if (!state.latestPaperSessionId) return log('Нет paper session для экспорта', 'warn');
   window.open(`/api/paper-sessions/${state.latestPaperSessionId}/export/trades.csv`, '_blank');
+});
+
+els.exportOptimizerBtn?.addEventListener('click', () => {
+  if (!state.latestOptimizerId) return log('Нет optimizer run для экспорта', 'warn');
+  window.open(`/api/optimizer-runs/${state.latestOptimizerId}/export/trials.csv`, '_blank');
 });
 
 els.configForm.addEventListener('submit', async (event) => {
