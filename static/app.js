@@ -776,7 +776,7 @@ async function loadPaperSession(sessionId = state.latestPaperSessionId) {
   const stateJson = session.state || {};
   els.paperStatus.textContent = `${session.status} / #${session.id}`;
   els.paperMeta.textContent = `index=${session.current_index} / equity=${formatNum(session.current_equity)} / open=${(stateJson.open_positions || []).length}`;
-  renderMetrics({
+  const summary = data.summary || {
     starting_equity: session.starting_equity,
     ending_equity: session.current_equity,
     total_return_pct: ((session.current_equity / session.starting_equity) - 1) * 100,
@@ -788,7 +788,8 @@ async function loadPaperSession(sessionId = state.latestPaperSessionId) {
     avg_r: 0,
     expectancy_pct: 0,
     stop_rate: 0,
-  }, 'paper');
+  };
+  renderMetrics(summary, 'paper');
   drawEquityCurve(data.equity);
   renderPaperTrades(data.trades);
   renderSecondaryRows(data.events, 'events');

@@ -20,6 +20,9 @@ class StrategySignal:
     stop_price: float
     tp1_price: float
     tp2_price: float
+    stop_distance: float
+    tp1_r_multiple: float
+    tp2_r_multiple: float
     notes: str
 
 
@@ -182,6 +185,8 @@ class StrategyFactory:
                 tp1 = close - stop_distance * (trend_tp1 if regime == 'trend' else rev_tp1)
                 tp2 = close - stop_distance * (trend_tp2 if regime == 'trend' else rev_tp2)
 
+            tp1_r_multiple = float(trend_tp1 if regime == 'trend' else rev_tp1)
+            tp2_r_multiple = float(trend_tp2 if regime == 'trend' else rev_tp2)
             signals.append(
                 StrategySignal(
                     ts=row.ts,
@@ -193,6 +198,9 @@ class StrategyFactory:
                     stop_price=round(stop, 8),
                     tp1_price=round(tp1, 8),
                     tp2_price=round(tp2, 8),
+                    stop_distance=round(stop_distance, 8),
+                    tp1_r_multiple=round(tp1_r_multiple, 8),
+                    tp2_r_multiple=round(tp2_r_multiple, 8),
                     notes='; '.join(notes),
                 )
             )

@@ -37,12 +37,15 @@ class SessionRuntime:
     disabled_days: set[pd.Timestamp] = field(default_factory=set)
     consecutive_losses: int = 0
     current_day: pd.Timestamp | None = None
+    daily_start_equity: float = 0.0
     last_persisted_trade_count: int = 0
     last_persisted_equity_count: int = 0
 
     def __post_init__(self) -> None:
         if not self.equity_cash:
             self.equity_cash = self.starting_equity
+        if not self.daily_start_equity:
+            self.daily_start_equity = self.starting_equity
         self.bar_maps = {symbol: df.set_index('ts').sort_index() for symbol, df in self.prepared.symbol_bars.items()}
         self.all_times = self.prepared.all_times
 
@@ -171,12 +174,14 @@ class PaperTradingManager:
         session = self._get_session_row(session_id)
         with get_conn(row_factory=True) as conn:
             trades = conn.execute('SELECT * FROM paper_trades WHERE paper_session_id = ? ORDER BY entry_ts DESC LIMIT 200', (session_id,)).fetchall()
-            equity = conn.execute('SELECT ts, equity FROM paper_equity_curve WHERE paper_session_id = ? ORDER BY ts DESC LIMIT 600', (session_id,)).fetchall()
+            all_trades = conn.execute('SELECT net_pnl, r_multiple, exit_reason FROM paper_trades WHERE paper_session_id = ? ORDER BY entry_ts ASC', (session_id,)).fetchall()
+            equity = conn.execute('SELECT ts, equity FROM paper_equity_curve WHERE paper_session_id = ? ORDER BY ts ASC', (session_id,)).fetchall()
             events = conn.execute('SELECT created_at, level, message FROM paper_events WHERE paper_session_id = ? ORDER BY id DESC LIMIT 100', (session_id,)).fetchall()
-        equity.reverse()
+        summary = SimulationHelpers.compute_metrics(pd.DataFrame(all_trades), pd.DataFrame(equity), float(session['starting_equity']))
         equity = self._downsample_equity(equity, max_points=220)
         return {
             'session': self._decorate_session_row(session),
+            'summary': summary,
             'trades': trades,
             'equity': equity,
             'events': events,
@@ -232,14 +237,13 @@ class PaperTradingManager:
         ts = runtime.all_times[index]
         settings = runtime.settings
         day = ts.normalize()
+        runtime.daily_realized.setdefault(day, 0.0)
+        runtime.daily_stopouts.setdefault(day, 0)
+
         if runtime.current_day is None or day != runtime.current_day:
             runtime.current_day = day
-            runtime.daily_realized.setdefault(day, 0.0)
-            runtime.daily_stopouts.setdefault(day, 0)
             runtime.consecutive_losses = 0
-        else:
-            runtime.daily_realized.setdefault(day, 0.0)
-            runtime.daily_stopouts.setdefault(day, 0)
+            runtime.daily_start_equity = SimulationHelpers.marked_equity(runtime.equity_cash, runtime.positions, runtime.bar_maps, ts)
 
         entry_fee_rate = float(settings.get('entry_fee_rate', 0.0002))
         tp_exit_fee_rate = float(settings.get('exit_fee_rate_take_profit', 0.0002))
@@ -331,18 +335,12 @@ class PaperTradingManager:
                 runtime.positions.pop(symbol, None)
                 continue
 
-        open_mark_to_market = 0.0
-        for symbol, pos in runtime.positions.items():
-            bar_df = runtime.bar_maps[symbol]
-            if ts not in bar_df.index:
-                continue
-            current_close = float(bar_df.loc[ts]['close'])
-            open_mark_to_market += SimulationHelpers.leg_pnl(pos, current_close, pos.qty)
-        runtime.equity_curve.append({'ts': ts.isoformat().replace('+00:00', 'Z'), 'equity': round(runtime.equity_cash + open_mark_to_market, 8)})
+        marked_equity = SimulationHelpers.marked_equity(runtime.equity_cash, runtime.positions, runtime.bar_maps, ts)
+        runtime.equity_curve.append({'ts': ts.isoformat().replace('+00:00', 'Z'), 'equity': round(marked_equity, 8)})
 
         if day in runtime.disabled_days:
             return
-        if runtime.equity_cash <= runtime.starting_equity * (1.0 - daily_loss_limit):
+        if marked_equity <= runtime.daily_start_equity * (1.0 - daily_loss_limit):
             runtime.disabled_days.add(day)
             return
 
@@ -366,13 +364,19 @@ class PaperTradingManager:
             if loc < 0 or loc + 1 >= len(next_bar_df):
                 continue
             next_bar = next_bar_df.iloc[loc + 1]
+            actual_entry_ts = pd.Timestamp(next_bar.name)
             next_entry = SimulationHelpers.apply_slippage(float(next_bar['open']), signal.side, entry_slippage_bps, is_entry=True)
-            risk_capital = runtime.equity_cash * float(settings.get('risk_per_trade', 0.004))
-            risk_per_unit = abs(next_entry - signal.stop_price)
+            stop_distance = float(getattr(signal, 'stop_distance', abs(signal.entry_price - signal.stop_price)))
+            tp1_r_multiple = float(getattr(signal, 'tp1_r_multiple', abs(signal.tp1_price - signal.entry_price) / max(stop_distance, 1e-9)))
+            tp2_r_multiple = float(getattr(signal, 'tp2_r_multiple', abs(signal.tp2_price - signal.entry_price) / max(stop_distance, 1e-9)))
+            actual_stop, actual_tp1, actual_tp2 = SimulationHelpers.recompute_levels(next_entry, signal.side, stop_distance, tp1_r_multiple, tp2_r_multiple)
+            marked_equity_for_sizing = SimulationHelpers.marked_equity(runtime.equity_cash, runtime.positions, runtime.bar_maps, ts)
+            risk_capital = marked_equity_for_sizing * float(settings.get('risk_per_trade', 0.004))
+            risk_per_unit = abs(next_entry - actual_stop)
             if risk_per_unit <= 0:
                 continue
             qty = risk_capital / risk_per_unit
-            max_notional = runtime.equity_cash * max_leverage
+            max_notional = marked_equity_for_sizing * max_leverage
             if qty * next_entry > max_notional:
                 qty = max_notional / max(next_entry, 1e-9)
             if qty <= 0:
@@ -385,11 +389,11 @@ class PaperTradingManager:
                 symbol=signal.symbol,
                 regime=signal.regime,
                 side=signal.side,
-                entry_ts=ts,
+                entry_ts=actual_entry_ts,
                 entry_price=next_entry,
-                stop_price=signal.stop_price,
-                tp1_price=signal.tp1_price,
-                tp2_price=signal.tp2_price,
+                stop_price=actual_stop,
+                tp1_price=actual_tp1,
+                tp2_price=actual_tp2,
                 qty=qty,
                 initial_qty=qty,
                 risk_per_unit=risk_per_unit,
@@ -399,7 +403,7 @@ class PaperTradingManager:
                 fees=entry_fee,
             )
             runtime.positions[signal.symbol] = pos
-            runtime.run_signals.append({'symbol': signal.symbol, 'ts': ts, 'regime': signal.regime, 'side': signal.side, 'score': signal.score, 'notes': signal.notes})
+            runtime.run_signals.append({'symbol': signal.symbol, 'ts': ts, 'entry_ts': actual_entry_ts, 'regime': signal.regime, 'side': signal.side, 'score': signal.score, 'notes': signal.notes})
 
     def _persist_runtime_delta(self, session_id: int, session: dict[str, Any], runtime: SessionRuntime) -> None:
         new_trades = runtime.trades[runtime.last_persisted_trade_count:]

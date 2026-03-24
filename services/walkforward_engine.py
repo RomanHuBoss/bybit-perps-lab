@@ -43,11 +43,12 @@ class WalkForwardEngine:
             train_end = all_times[cursor - 1]
             test_start = all_times[cursor]
             test_end = all_times[cursor + test_bars - 1]
+            warmup_train_start = all_times[max(0, cursor - train_bars * 2)]
 
-            train_candles = candles[(candles['ts'] >= train_start) & (candles['ts'] <= train_end)].copy()
-            train_funding = funding[(funding['ts'] >= train_start - pd.Timedelta(hours=8)) & (funding['ts'] <= train_end)].copy() if not funding.empty else funding
-            test_candles = candles[(candles['ts'] >= test_start) & (candles['ts'] <= test_end)].copy()
-            test_funding = funding[(funding['ts'] >= test_start - pd.Timedelta(hours=8)) & (funding['ts'] <= test_end)].copy() if not funding.empty else funding
+            train_candles = candles[(candles['ts'] >= warmup_train_start) & (candles['ts'] <= train_end)].copy()
+            train_funding = funding[(funding['ts'] >= warmup_train_start - pd.Timedelta(hours=8)) & (funding['ts'] <= train_end)].copy() if not funding.empty else funding
+            test_candles = candles[(candles['ts'] >= train_start) & (candles['ts'] <= test_end)].copy()
+            test_funding = funding[(funding['ts'] >= train_start - pd.Timedelta(hours=8)) & (funding['ts'] <= test_end)].copy() if not funding.empty else funding
 
             best_params = None
             best_objective = float('-inf')
@@ -58,7 +59,7 @@ class WalkForwardEngine:
                 train_settings.update(params)
                 train_settings['starting_equity'] = carry_equity
                 try:
-                    train_result = simulate_market(train_settings, train_candles, train_funding, symbols, starting_equity=carry_equity)
+                    train_result = simulate_market(train_settings, train_candles, train_funding, symbols, starting_equity=carry_equity, trade_start_ts=train_start)
                 except Exception:
                     continue
                 objective = self._score_train_result(train_result['summary'])
@@ -73,7 +74,7 @@ class WalkForwardEngine:
             test_settings = dict(self.settings)
             test_settings.update(best_params)
             test_settings['starting_equity'] = carry_equity
-            test_result = simulate_market(test_settings, test_candles, test_funding, symbols, starting_equity=carry_equity)
+            test_result = simulate_market(test_settings, test_candles, test_funding, symbols, starting_equity=carry_equity, trade_start_ts=test_start)
 
             carry_equity = float(test_result['summary']['ending_equity'])
             aggregate_trades.extend(test_result['trades'])

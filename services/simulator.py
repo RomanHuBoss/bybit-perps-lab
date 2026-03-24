@@ -61,6 +61,31 @@ class SimulationHelpers:
             delta *= -1
         return qty * delta
 
+
+    @staticmethod
+    def recompute_levels(entry_price: float, side: str, stop_distance: float, tp1_r_multiple: float, tp2_r_multiple: float) -> tuple[float, float, float]:
+        stop_distance = max(float(stop_distance), 1e-9)
+        if side == 'LONG':
+            stop_price = entry_price - stop_distance
+            tp1_price = entry_price + stop_distance * float(tp1_r_multiple)
+            tp2_price = entry_price + stop_distance * float(tp2_r_multiple)
+        else:
+            stop_price = entry_price + stop_distance
+            tp1_price = entry_price - stop_distance * float(tp1_r_multiple)
+            tp2_price = entry_price - stop_distance * float(tp2_r_multiple)
+        return stop_price, tp1_price, tp2_price
+
+    @staticmethod
+    def marked_equity(cash_equity: float, positions: dict[str, Position], bar_maps: dict[str, pd.DataFrame], ts: pd.Timestamp) -> float:
+        open_mark_to_market = 0.0
+        for symbol, pos in positions.items():
+            bar_df = bar_maps.get(symbol)
+            if bar_df is None or ts not in bar_df.index:
+                continue
+            current_close = float(bar_df.loc[ts]['close'])
+            open_mark_to_market += SimulationHelpers.leg_pnl(pos, current_close, pos.qty)
+        return float(cash_equity + open_mark_to_market)
+
     @classmethod
     def close_position(cls, pos: Position, exit_ts: pd.Timestamp, exit_price: float, exit_reason: str, fee_rate: float) -> dict[str, Any]:
         gross = pos.realized_gross + cls.leg_pnl(pos, exit_price, pos.qty)
@@ -248,17 +273,17 @@ def simulate_market(
     disabled_days: set[pd.Timestamp] = set()
     consecutive_losses = 0
     current_day: pd.Timestamp | None = None
+    daily_start_equity = float(starting_equity)
 
     for ts in prepared.all_times:
         day = ts.normalize()
+        daily_realized.setdefault(day, 0.0)
+        daily_stopouts.setdefault(day, 0)
+
         if current_day is None or day != current_day:
             current_day = day
-            daily_realized.setdefault(day, 0.0)
-            daily_stopouts.setdefault(day, 0)
             consecutive_losses = 0
-        else:
-            daily_realized.setdefault(day, 0.0)
-            daily_stopouts.setdefault(day, 0)
+            daily_start_equity = SimulationHelpers.marked_equity(equity, positions, bar_maps, ts)
 
         for symbol, pos in list(positions.items()):
             rate = prepared.funding_maps.get(symbol, {}).get(ts)
@@ -339,19 +364,13 @@ def simulate_market(
                 positions.pop(symbol, None)
                 continue
 
-        open_mark_to_market = 0.0
-        for symbol, pos in positions.items():
-            bar_df = bar_maps[symbol]
-            if ts not in bar_df.index:
-                continue
-            current_close = float(bar_df.loc[ts]['close'])
-            open_mark_to_market += SimulationHelpers.leg_pnl(pos, current_close, pos.qty)
+        marked_equity = SimulationHelpers.marked_equity(equity, positions, bar_maps, ts)
         if trade_start_cutoff is None or ts >= trade_start_cutoff:
-            equity_curve.append({'ts': ts, 'equity': round(equity + open_mark_to_market, 8)})
+            equity_curve.append({'ts': ts, 'equity': round(marked_equity, 8)})
 
         if day in disabled_days:
             continue
-        if equity <= starting_equity * (1.0 - daily_loss_limit):
+        if marked_equity <= daily_start_equity * (1.0 - daily_loss_limit):
             disabled_days.add(day)
             continue
 
@@ -380,13 +399,19 @@ def simulate_market(
             if loc + 1 >= len(next_bar_df):
                 continue
             next_bar = next_bar_df.iloc[loc + 1]
+            actual_entry_ts = pd.Timestamp(next_bar.name)
             next_entry = SimulationHelpers.apply_slippage(float(next_bar['open']), signal.side, entry_slippage_bps, is_entry=True)
-            risk_capital = equity * float(settings.get('risk_per_trade', 0.004))
-            risk_per_unit = abs(next_entry - signal.stop_price)
+            stop_distance = float(getattr(signal, 'stop_distance', abs(signal.entry_price - signal.stop_price)))
+            tp1_r_multiple = float(getattr(signal, 'tp1_r_multiple', abs(signal.tp1_price - signal.entry_price) / max(stop_distance, 1e-9)))
+            tp2_r_multiple = float(getattr(signal, 'tp2_r_multiple', abs(signal.tp2_price - signal.entry_price) / max(stop_distance, 1e-9)))
+            actual_stop, actual_tp1, actual_tp2 = SimulationHelpers.recompute_levels(next_entry, signal.side, stop_distance, tp1_r_multiple, tp2_r_multiple)
+            marked_equity_for_sizing = SimulationHelpers.marked_equity(equity, positions, bar_maps, ts)
+            risk_capital = marked_equity_for_sizing * float(settings.get('risk_per_trade', 0.004))
+            risk_per_unit = abs(next_entry - actual_stop)
             if risk_per_unit <= 0:
                 continue
             qty = risk_capital / risk_per_unit
-            max_notional = equity * max_leverage
+            max_notional = marked_equity_for_sizing * max_leverage
             if qty * next_entry > max_notional:
                 qty = max_notional / max(next_entry, 1e-9)
             if qty <= 0:
@@ -400,11 +425,11 @@ def simulate_market(
                 symbol=signal.symbol,
                 regime=signal.regime,
                 side=signal.side,
-                entry_ts=ts,
+                entry_ts=actual_entry_ts,
                 entry_price=next_entry,
-                stop_price=signal.stop_price,
-                tp1_price=signal.tp1_price,
-                tp2_price=signal.tp2_price,
+                stop_price=actual_stop,
+                tp1_price=actual_tp1,
+                tp2_price=actual_tp2,
                 qty=qty,
                 initial_qty=qty,
                 risk_per_unit=risk_per_unit,
@@ -418,6 +443,7 @@ def simulate_market(
                 {
                     'symbol': signal.symbol,
                     'ts': ts,
+                    'entry_ts': actual_entry_ts,
                     'regime': signal.regime,
                     'side': signal.side,
                     'score': signal.score,

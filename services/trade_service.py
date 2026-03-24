@@ -12,6 +12,7 @@ from database import log_live_order
 from services.data_service import load_candles, load_funding
 from services.live_adapter import live_adapter
 from services.strategy_engine import StrategyFactory, StrategySignal
+from services.simulator import SimulationHelpers
 
 
 LOCAL_INSTRUMENT_FALLBACKS: dict[str, dict[str, str]] = {
@@ -109,8 +110,12 @@ class TradePlanner:
             qty = _round_up_min_notional(min_notional, entry_price, qty_step)
             actual_notional = qty * entry_price
 
-        stop_price = _round_to_tick(Decimal(str(signal['stop_price'])), tick)
-        tp_price = _round_to_tick(Decimal(str(signal['tp2_price'])), tick)
+        stop_distance = float(signal.get('stop_distance') or abs(float(signal['entry_price']) - float(signal['stop_price'])))
+        tp1_r_multiple = float(signal.get('tp1_r_multiple') or (abs(float(signal['tp1_price']) - float(signal['entry_price'])) / max(stop_distance, 1e-9)))
+        tp2_r_multiple = float(signal.get('tp2_r_multiple') or (abs(float(signal['tp2_price']) - float(signal['entry_price'])) / max(stop_distance, 1e-9)))
+        recomputed_stop, _, recomputed_tp2 = SimulationHelpers.recompute_levels(float(entry_price), signal['side'], stop_distance, tp1_r_multiple, tp2_r_multiple)
+        stop_price = _round_to_tick(Decimal(str(recomputed_stop)), tick)
+        tp_price = _round_to_tick(Decimal(str(recomputed_tp2)), tick)
         risk_to_stop = abs(entry_price - stop_price) * qty
         reward_to_tp = abs(tp_price - entry_price) * qty
         min_notional_estimate = max(min_notional, min_qty * entry_price)
@@ -215,6 +220,9 @@ def _signal_to_dict(signal: StrategySignal) -> dict[str, Any]:
         'stop_price': signal.stop_price,
         'tp1_price': signal.tp1_price,
         'tp2_price': signal.tp2_price,
+        'stop_distance': signal.stop_distance,
+        'tp1_r_multiple': signal.tp1_r_multiple,
+        'tp2_r_multiple': signal.tp2_r_multiple,
         'notes': signal.notes,
     }
 
