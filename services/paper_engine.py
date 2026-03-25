@@ -135,7 +135,7 @@ class PaperTradingManager:
         if runtime.current_index >= len(runtime.all_times) - 1:
             self.stop_background(session_id)
             self._update_status(session_id, 'completed')
-            self._log_event(session_id, 'success', 'Paper replay завершён: достигнут конец истории.')
+            self._log_event(session_id, 'success', 'Бумажный прогон завершён: достигнут конец истории.')
         else:
             self._update_status(session_id, 'running' if session['status'] == 'running' else 'paused')
         return self.get_session(session_id)

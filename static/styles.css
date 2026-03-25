@@ -730,3 +730,50 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 }
+
+.helper-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.tool-collapse {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 12px 14px;
+  background: rgba(255,255,255,0.02);
+}
+
+.tool-collapse > summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--text);
+  list-style: none;
+}
+
+.tool-collapse > summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-collapse > summary::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: 8px;
+  color: var(--muted);
+  transition: transform .18s ease;
+}
+
+.tool-collapse[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.tool-collapse > .section-hint {
+  margin-top: 12px;
+}
+
+.manual-panel {
+  align-self: start;
+}
+
+.analysis-main-grid > .strategy-panel {
+  grid-column: 1 / -1;
+}

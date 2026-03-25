@@ -35,7 +35,7 @@ def get_research_presets() -> list[dict[str, Any]]:
     return [
         {
             'name': 'reversion_60d_auto',
-            'label': 'Reversion-only / 60d / 2-stage',
+            'label': 'Только реверсия / 60д / 2 этапа',
             'description': 'Автоматический двухэтапный поиск для 60 дней 5m истории с hard min-trades фильтром.',
             'symbol_mode': 'single',
             'stages': [
@@ -102,8 +102,8 @@ def get_research_presets() -> list[dict[str, Any]]:
         },
         {
             'name': 'trend_60d_auto',
-            'label': 'Trend-only / 60d / 2-stage',
-            'description': 'Автоматический двухэтапный поиск для trend-only. Использовать как исследовательскую ветку.',
+            'label': 'Только тренд / 60д / 2 этапа',
+            'description': 'Автоматический двухэтапный поиск только для трендового модуля. Использовать как исследовательскую ветку.',
             'symbol_mode': 'single',
             'stages': [
                 {
@@ -169,8 +169,8 @@ def get_research_presets() -> list[dict[str, Any]]:
         },
         {
             'name': 'dual_60d_auto',
-            'label': 'Dual-mode / 60d / compare trend vs reversion',
-            'description': 'Сравнительный пакет: один stage trend-only и один stage reversion-only без ручного переключения чекбоксов.',
+            'label': 'Сдвоенный режим / 60д / сравнение тренда и реверсии',
+            'description': 'Сравнительный пакет: один этап только трендового режима и один этап только реверсионного режима без ручного переключения флажков.',
             'symbol_mode': 'single',
             'stages': [
                 {
@@ -244,9 +244,9 @@ class AutoResearchRunner:
     def run(self, *, symbols: list[str], plan: dict[str, Any], plan_name: str | None = None, note: str | None = None) -> dict[str, Any]:
         symbols = [str(symbol).upper() for symbol in (symbols or []) if str(symbol).strip()]
         if not symbols:
-            raise ValueError('At least one symbol is required for auto research.')
+            raise ValueError('Для автоисследования нужен хотя бы один символ.')
         if len(symbols) != 1:
-            raise ValueError('Auto research currently supports exactly one symbol per plan.')
+            raise ValueError('Автоисследование сейчас поддерживает ровно один символ на сценарий.')
         plan = deepcopy(plan)
         created_at = utc_now_iso()
         research_run_id = f"research_{created_at.replace(':', '').replace('-', '').replace('+00:00', 'Z').replace('T', '_')}_{uuid4().hex[:8]}"

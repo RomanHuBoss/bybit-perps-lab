@@ -401,17 +401,24 @@ def main() -> None:
     template_html = (ROOT / 'templates' / 'index.html').read_text(encoding='utf-8')
     app_js = (ROOT / 'static' / 'app.js').read_text(encoding='utf-8')
     live_js = (ROOT / 'static' / 'live_ui.js').read_text(encoding='utf-8')
+    app_py = (ROOT / 'app.py').read_text(encoding='utf-8')
     assert 'data-tab-target="research"' in template_html
     assert 'data-tab-target="paper"' in template_html
     assert 'data-tab-target="live"' in template_html
     assert 'data-tab-target="data"' in template_html
     assert 'id="tinyArm"' in template_html
-    assert 'Live / dry-run контур' in template_html
-    assert 'Paper replay' in template_html
+    assert 'Контур исполнения / сухого прогона' in template_html
+    assert 'Базовый профиль стратегии' in template_html
+    assert 'Ручной оптимизатор (дополнительно)' in template_html
+    assert 'id="researchPicker"' in template_html
     assert 'function setActiveTab' in app_js
+    assert 'function summarizeResearchPreset' in app_js
+    assert "selectedPickerValue('research')" in app_js
+    assert 'base_overrides' in app_js
+    assert 'base_overrides' in app_py
     assert 'renderPaperMetrics' in app_js
     assert 'syncArmState' in live_js
-    print('ui workspace separation regression: OK')
+    print('ui semantics and workspace separation regression: OK')
 
     print('ALL CHECKS PASSED')
 

@@ -271,14 +271,16 @@ def create_app() -> Flask:
                 raise ValueError(f'Unknown research preset: {preset_name}')
             plan = presets[preset_name]
         note = payload.get('note')
+        base_settings = get_settings()
+        base_settings.update(payload.get('base_overrides', {}))
         if _as_bool(payload.get('async'), default=False):
             job = job_manager.submit(
                 'run-auto-research',
-                lambda: AutoResearchRunner().run(symbols=symbols, plan=plan, plan_name=preset_name or plan.get('name'), note=note),
+                lambda: AutoResearchRunner(base_settings=base_settings).run(symbols=symbols, plan=plan, plan_name=preset_name or plan.get('name'), note=note),
                 meta={'symbols': symbols, 'preset_name': preset_name or plan.get('name')},
             )
             return jsonify({'job_id': job.id, 'status': job.status, 'kind': job.kind})
-        return jsonify(AutoResearchRunner().run(symbols=symbols, plan=plan, plan_name=preset_name or plan.get('name'), note=note))
+        return jsonify(AutoResearchRunner(base_settings=base_settings).run(symbols=symbols, plan=plan, plan_name=preset_name or plan.get('name'), note=note))
 
     @app.get('/api/research-runs')
     def api_research_runs():

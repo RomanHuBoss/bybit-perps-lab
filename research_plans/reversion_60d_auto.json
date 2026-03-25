@@ -1,6 +1,6 @@
 {
   "name": "reversion_60d_auto",
-  "label": "Reversion-only / 60d / 2-stage",
+  "label": "Только реверсия / 60д / 2 этапа",
   "description": "Автоматический двухэтапный поиск для 60 дней 5m истории с hard min-trades фильтром.",
   "stages": [
     {

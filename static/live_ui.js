@@ -58,14 +58,14 @@
       ...options,
     });
     const payload = await res.json();
-    if (!res.ok) throw new Error(payload.error || 'Request failed');
+    if (!res.ok) throw new Error(payload.error || 'Ошибка запроса');
     return payload;
   }
 
   async function refreshMode() {
     const status = await callApi('/api/live-adapter/status');
-    els.tinyMode.textContent = status.enabled ? (status.dry_run ? 'dry-run' : 'live') : 'disabled';
-    els.tinyModeMeta.textContent = `${status.testnet ? 'testnet' : 'mainnet'} / key=${status.api_key_present ? 'yes' : 'no'} / secret=${status.api_secret_present ? 'yes' : 'no'}`;
+    els.tinyMode.textContent = status.enabled ? (status.dry_run ? 'сухой прогон' : 'боевой режим') : 'отключён';
+    els.tinyModeMeta.textContent = `${status.testnet ? 'тестовая сеть' : 'основная сеть'} / ключ=${status.api_key_present ? 'есть' : 'нет'} / секрет=${status.api_secret_present ? 'есть' : 'нет'}`;
   }
 
   async function loadSignals() {
@@ -75,7 +75,7 @@
     const row = payload.signals?.[0];
     if (row?.signal) {
       els.tinyPlanTitle.textContent = `${row.symbol} / ${row.signal.side} / ${row.signal.regime}`;
-      els.tinyPlanMeta.textContent = `score=${row.signal.score}; age=${row.bars_since_signal}; ${row.note}`;
+      els.tinyPlanMeta.textContent = `оценка=${row.signal.score}; возраст сигнала=${row.bars_since_signal}; ${row.note}`;
     } else {
       els.tinyPlanTitle.textContent = `${symbol}`;
       els.tinyPlanMeta.textContent = row?.note || 'Сигнал не найден';
@@ -93,8 +93,8 @@
     lastPlan = payload;
     showJson(els.tinyOutput, payload);
     els.tinyPlanTitle.textContent = `${payload.symbol} / ${payload.side}`;
-    els.tinyPlanMeta.textContent = `qty=${payload.qty}; entry=${payload.entry_price}; stop=${payload.stop_price}; tp=${payload.take_profit_price}`;
-    note(`План собран: ${payload.symbol} ${payload.side} qty=${payload.qty}`);
+    els.tinyPlanMeta.textContent = `кол-во=${payload.qty}; вход=${payload.entry_price}; стоп=${payload.stop_price}; тейк=${payload.take_profit_price}`;
+    note(`План собран: ${payload.symbol} ${payload.side} количество=${payload.qty}`);
   }
 
   async function executePlan() {
@@ -103,8 +103,8 @@
     const notional = parseNumber(els.tinyNotional.value);
     const fresh = els.tinyFreshOnly.checked;
     const status = await callApi('/api/live-adapter/status');
-    const modeText = status.enabled ? (status.dry_run ? 'dry-run' : 'LIVE') : 'disabled';
-    const approved = window.confirm(`Отправить tiny-order по ${symbol} на ${notional} USDT? Режим адаптера: ${modeText}.`);
+    const modeText = status.enabled ? (status.dry_run ? 'сухой прогон' : 'боевой режим') : 'отключён';
+    const approved = window.confirm(`Отправить малый ордер по ${symbol} на ${notional} USDT? Режим адаптера: ${modeText}.`);
     if (!approved) return;
     const payload = await callApi('/api/tiny-live/execute', {
       method: 'POST',
@@ -112,7 +112,7 @@
     });
     lastPlan = payload.plan;
     showJson(els.tinyOutput, payload);
-    note(`Ордер отправлен через адаптер. log_id=${payload.log_id}`, 'warn');
+    note(`Ордер отправлен через адаптер. идентификатор лога=${payload.log_id}`, 'warn');
     if (els.tinyArm) els.tinyArm.checked = false;
     syncArmState();
     await refreshLogs();

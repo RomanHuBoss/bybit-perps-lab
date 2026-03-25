@@ -3,4 +3,6 @@
 .idea
 __pycache__
 *.db
-/instance/*
+/instance/trading.db-shm
+/instance/trading.db-wal
+/instance/symbol_catalog_linear_usdt.json

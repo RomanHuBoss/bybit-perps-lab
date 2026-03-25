@@ -49,7 +49,9 @@ const els = {
   syncPicker: document.getElementById('syncPicker'),
   syncPickerHint: document.getElementById('syncPickerHint'),
   optimizerPicker: document.getElementById('optimizerPicker'),
+  researchPicker: document.getElementById('researchPicker'),
   optimizerPickerHint: document.getElementById('optimizerPickerHint'),
+  researchPickerHint: document.getElementById('researchPickerHint'),
   syncDays: document.getElementById('syncDays'),
   tinyPicker: document.getElementById('tinyPicker'),
   tinyPickerHint: document.getElementById('tinyPickerHint'),
@@ -68,6 +70,7 @@ const els = {
   downloadResearchCsvBtn: document.getElementById('downloadResearchCsvBtn'),
   researchStatus: document.getElementById('researchStatus'),
   researchMeta: document.getElementById('researchMeta'),
+  researchEffectiveSummary: document.getElementById('researchEffectiveSummary'),
   paperName: document.getElementById('paperName'),
   paperSteps: document.getElementById('paperSteps'),
   symbolsList: document.getElementById('symbolsList'),
@@ -110,22 +113,68 @@ const els = {
 
 const TAB_META = {
   research: {
-    title: 'Research',
-    subtitle: 'Optimizer, auto research, ручной backtest / walk-forward и единый аналитический workspace для проверки гипотез.',
+    title: 'Исследование',
+    subtitle: 'Автоисследование, ручной бэктест / walk-forward и единая аналитическая зона для проверки гипотез.',
   },
   paper: {
-    title: 'Paper replay',
-    subtitle: 'Paper replay и разбор paper-результатов без смешивания с optimizer и live-контуром.',
+    title: 'Бумажный прогон',
+    subtitle: 'Бумажный прогон и разбор его результатов без смешивания с исследованием и контуром исполнения.',
   },
   live: {
-    title: 'Live / dry-run',
-    subtitle: 'Отдельный execution workspace: статус адаптера, план, подтверждение и dry-run / live лог.',
+    title: 'Исполнение',
+    subtitle: 'Отдельная рабочая зона исполнения: статус адаптера, план, подтверждение и журнал сухого прогона.',
   },
   data: {
-    title: 'Data',
-    subtitle: 'Синхронизация, demo-генерация и импорт CSV вынесены в отдельную техническую вкладку.',
+    title: 'Данные',
+    subtitle: 'Синхронизация, загрузка демо-данных и импорт CSV вынесены в отдельную техническую вкладку.',
   },
 };
+
+const MODE_LABELS = {
+  mixed: 'смешанный режим',
+  trend_only: 'только трендовый модуль',
+  reversion_only: 'только реверсионный модуль',
+};
+
+const PARAM_LABELS = {
+  risk_per_trade: 'риск на сделку',
+  trend_strength_min: 'мин. сила тренда',
+  reversion_zscore_threshold: 'Z-оценка возврата',
+  volatility_score_min: 'мин. score волатильности',
+  volatility_score_max: 'макс. score волатильности',
+  volume_multiplier: 'множитель объёма',
+  atr_stop_mult_trend: 'ATR-стоп тренда',
+  atr_stop_mult_reversion: 'ATR-стоп реверсии',
+};
+
+function labelForMode(mode) {
+  return MODE_LABELS[mode] || mode || '—';
+}
+
+function labelForViewMode(mode) {
+  if (!mode) return '—';
+  if (String(mode).startsWith('research:')) return `автоисследование: ${String(mode).slice('research:'.length)}`;
+  const map = {
+    backtest: 'бэктест',
+    'walk-forward': 'прогон по окнам',
+    optimizer: 'ручной оптимизатор',
+    'ручной оптимизатор': 'ручной оптимизатор',
+    paper: 'бумажный прогон',
+    research: 'автоисследование',
+  };
+  return map[mode] || mode;
+}
+
+function summarizeResearchPreset(preset) {
+  if (!preset || !els.researchEffectiveSummary) return;
+  const stage = preset.stages?.[0] || {};
+  const optimizer = stage.optimizer || {};
+  const paramSpecs = stage.param_specs || stage.fallback_param_specs || {};
+  const symbol = selectedPickerValue('research') || 'не выбран';
+  const searchParams = Object.keys(paramSpecs).map((name) => PARAM_LABELS[name] || name).join(', ') || 'нет';
+  const windows = optimizer.optimizer_train_bars ? `обучение ${optimizer.optimizer_train_bars} / проверка ${optimizer.optimizer_test_bars} / шаг ${optimizer.optimizer_step_bars} / сегментов ${optimizer.optimizer_max_segments} / мин. сделок ${optimizer.optimizer_min_trades_test}` : 'окна не заданы';
+  els.researchEffectiveSummary.textContent = `Символ: ${symbol}. Этап 1: ${labelForMode(stage.mode)}; прогонов ${stage.trials || '—'}; ${windows}. Поиск: ${searchParams}. База: текущие поля «Базового профиля стратегии».`;
+}
 
 function setActiveTab(nextTab) {
   const tab = TAB_META[nextTab] ? nextTab : 'research';
@@ -200,7 +249,7 @@ async function waitForJob(jobId, { intervalMs = 700, onTick } = {}) {
     const job = await api(`/api/jobs/${jobId}`);
     if (onTick) onTick(job);
     if (job.status === 'success') return job.result;
-    if (job.status === 'error') throw new Error(job.error || 'Background job failed');
+    if (job.status === 'error') throw new Error(job.error || 'Фоновая задача завершилась ошибкой');
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
 }
@@ -380,7 +429,8 @@ function ensurePickerDefaults() {
   setSingleDefault(state.pickers.csv, [loadSavedPickerSelection('csv')[0], availableSymbols[0], demoDefaults[0], 'BTCUSDT'].filter((symbol) => catalogSymbols.has(symbol) || symbol === 'BTCUSDT'));
   setSingleDefault(state.pickers.tiny, [loadSavedPickerSelection('tiny')[0], 'DOGEUSDT', availableSymbols[0], demoDefaults[0]].filter((symbol) => catalogSymbols.has(symbol)));
   setSingleDefault(state.pickers.optimizer, [loadSavedPickerSelection('optimizer')[0], availableSymbols[0], demoDefaults[0], 'BTCUSDT'].filter((symbol) => catalogSymbols.has(symbol) || symbol === 'BTCUSDT'));
-  ['demo', 'sync', 'csv', 'tiny', 'optimizer'].forEach(savePickerSelection);
+  setSingleDefault(state.pickers.research, [loadSavedPickerSelection('research')[0], loadSavedPickerSelection('optimizer')[0], availableSymbols[0], demoDefaults[0], 'BTCUSDT'].filter((symbol) => catalogSymbols.has(symbol) || symbol === 'BTCUSDT'));
+  ['demo', 'sync', 'csv', 'tiny', 'optimizer', 'research'].forEach(savePickerSelection);
 }
 
 function renderPicker(key) {
@@ -444,9 +494,11 @@ function renderPicker(key) {
       }
       savePickerSelection(key);
       renderPicker(key);
+      if (key === 'research') summarizeResearchPreset(selectedResearchPreset());
     });
     picker.optionsWrap.appendChild(option);
   });
+  if (key === 'research') summarizeResearchPreset(selectedResearchPreset());
 }
 
 function updateCatalogHints() {
@@ -454,12 +506,13 @@ function updateCatalogHints() {
   const src = meta.source || '—';
   const when = meta.fetched_at ? new Date(meta.fetched_at).toLocaleString() : '—';
   const suffix = meta.error ? ` Ошибка обновления: ${meta.error}` : '';
-  const baseHint = `Каталог: ${src}. Bybit linear / Trading / USDT, сортировка по 24h turnover. Обновлено: ${when}.${suffix}`;
-  if (els.demoPickerHint) els.demoPickerHint.textContent = `${baseHint} Для demo можно выбрать несколько символов.`;
+  const baseHint = `Каталог: ${src}. Bybit linear / торговля / USDT, сортировка по обороту за 24ч. Обновлено: ${when}.${suffix}`;
+  if (els.demoPickerHint) els.demoPickerHint.textContent = `${baseHint} Для демо-данных можно выбрать несколько символов.`;
   if (els.syncPickerHint) els.syncPickerHint.textContent = `${baseHint} Для sync можно выбрать несколько символов.`;
   if (els.csvPickerHint) els.csvPickerHint.textContent = `${baseHint} Для CSV нужен один символ — метка импортируемого файла.`;
-  if (els.tinyPickerHint) els.tinyPickerHint.textContent = `${baseHint} Для tiny live используется один символ.`;
-  if (els.optimizerPickerHint) els.optimizerPickerHint.textContent = `${baseHint} Для optimizer используется один символ и rolling train/test проверка.`;
+  if (els.tinyPickerHint) els.tinyPickerHint.textContent = `${baseHint} Для малого контура исполнения используется один символ.`;
+  if (els.optimizerPickerHint) els.optimizerPickerHint.textContent = `${baseHint} Для ручного оптимизатора используется один символ и скользящая train/test проверка.`;
+  if (els.researchPickerHint) els.researchPickerHint.textContent = `${baseHint} Для автоисследования используется один символ. Этот выбор не зависит от ручного оптимизатора.`;
 }
 
 function initPickers() {
@@ -468,6 +521,7 @@ function initPickers() {
   buildPicker(els.csvPicker, 'csv', { multi: false, placeholder: 'Выбрать символ' });
   buildPicker(els.tinyPicker, 'tiny', { multi: false, placeholder: 'Выбрать символ' });
   buildPicker(els.optimizerPicker, 'optimizer', { multi: false, placeholder: 'Выбрать символ' });
+  buildPicker(els.researchPicker, 'research', { multi: false, placeholder: 'Выбрать символ' });
 }
 
 document.addEventListener('click', (event) => {
@@ -487,6 +541,7 @@ function fillConfigForm(config) {
     if (input.type === 'checkbox') input.checked = Boolean(value);
     else input.value = value;
   }
+  summarizeResearchPreset(selectedResearchPreset());
 }
 
 function collectConfigForm() {
@@ -537,7 +592,10 @@ function fillResearchPresetOptions() {
     els.researchPreset.value = state.researchPresets[0].name;
   }
   const preset = selectedResearchPreset();
-  if (preset) setResearchStatus(preset.label || preset.name, preset.description || '');
+  if (preset) {
+    setResearchStatus(preset.label || preset.name, preset.description || '');
+    summarizeResearchPreset(preset);
+  }
 }
 
 function applyResearchPresetToForm(preset) {
@@ -553,27 +611,20 @@ function applyResearchPresetToForm(preset) {
     nextConfig[name] = value;
   });
   fillConfigForm(nextConfig);
-  if (stage.optimizer) {
-    if (els.optimizerTrainBars) els.optimizerTrainBars.value = stage.optimizer.optimizer_train_bars ?? els.optimizerTrainBars.value;
-    if (els.optimizerTestBars) els.optimizerTestBars.value = stage.optimizer.optimizer_test_bars ?? els.optimizerTestBars.value;
-    if (els.optimizerStepBars) els.optimizerStepBars.value = stage.optimizer.optimizer_step_bars ?? els.optimizerStepBars.value;
-    if (els.optimizerMaxSegments) els.optimizerMaxSegments.value = stage.optimizer.optimizer_max_segments ?? els.optimizerMaxSegments.value;
-    if (els.optimizerMinTrades) els.optimizerMinTrades.value = stage.optimizer.optimizer_min_trades_test ?? els.optimizerMinTrades.value;
-  }
-  if (els.optimizerTrials) els.optimizerTrials.value = stage.trials ?? els.optimizerTrials.value;
-  setResearchStatus(`Preset: ${preset.label || preset.name}`, `${preset.description || ''}`);
-  log(`Preset загружен: ${preset.label || preset.name}`, 'success');
+  setResearchStatus(`Сценарий: ${preset.label || preset.name}`, `${preset.description || ''}`);
+  summarizeResearchPreset(preset);
+  log(`Сценарий загружен в базовый профиль: ${preset.label || preset.name}`, 'success');
 }
 
 function renderResearchStages(stages = []) {
-  setPrimaryHeader(['Stage', 'Mode', 'Run', 'Eligible', 'Profitable', 'Return', 'PF', 'Winner']);
+  setPrimaryHeader(['Этап', 'Режим', 'Запуск', 'Допущено', 'Прибыльных', 'Доходность', 'PF', 'Победитель']);
   els.primaryTbody.innerHTML = '';
   stages.forEach((stage) => {
     const best = stage.winner_trial || stage.best_summary || {};
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${stage.stage_index}. ${stage.stage_name}</td>
-      <td>${stage.mode}</td>
+      <td>${labelForMode(stage.mode)}</td>
       <td>${stage.optimizer_run_id}</td>
       <td>${stage.eligible_trials_count}</td>
       <td>${stage.profitable_eligible_trials_count}</td>
@@ -602,18 +653,19 @@ function renderResearchRun(manifest) {
     avg_r: winner.avg_r,
     expectancy_pct: winner.expectancy_pct,
     stop_rate: winner.stop_rate,
-  }, `research:${manifest.plan_name}`);
+  }, `research:${manifest.plan_label || manifest.plan_name}`);
   if (winner.best_equity_curve?.length > 1) drawEquityCurve(winner.best_equity_curve);
   else drawEquityCurve([]);
   renderResearchStages(manifest.stages || []);
   renderSecondaryRows((manifest.stages || []).map((stage) => ({
     created_at: manifest.created_at,
-    level: `${stage.stage_name} / ${stage.mode}`,
-    message: `eligible=${stage.eligible_trials_count}, profitable=${stage.profitable_eligible_trials_count}, winner=${JSON.stringify(stage.winner_trial || {})}`
+    level: `${stage.stage_name} / ${labelForMode(stage.mode)}`,
+    message: `допущено=${stage.eligible_trials_count}, прибыльных=${stage.profitable_eligible_trials_count}, победитель=${JSON.stringify(stage.winner_trial || {})}`
   })), 'events');
-  els.runBadge.textContent = `Research ${manifest.research_run_id}`;
+  els.runBadge.textContent = `Автоисследование ${manifest.research_run_id}`;
   state.viewMode = 'research';
-  setResearchStatus(manifest.plan_label || manifest.plan_name, `winner: ${winner.stage_name || '—'} / ret=${formatNum(winner.total_return_pct, 2)}% / PF=${winner.profit_factor ?? '—'}`);
+  setResearchStatus(manifest.plan_label || manifest.plan_name, `победитель: ${winner.stage_name || '—'} / доходность=${formatNum(winner.total_return_pct, 2)}% / PF=${winner.profit_factor ?? '—'}`);
+  summarizeResearchPreset(selectedResearchPreset());
   setActiveTab('research');
 }
 
@@ -627,7 +679,7 @@ async function loadLatestResearch() {
   const payload = await api('/api/research-runs?limit=1');
   const run = payload.runs?.[0];
   if (!run) {
-    log('Auto research запусков пока нет', 'warn');
+    log('Запусков автоисследования пока нет', 'warn');
     return;
   }
   const details = await api(`/api/research-runs/${run.research_run_id}`);
@@ -664,7 +716,7 @@ function renderMetrics(summary = {}, mode = '—') {
   els.metricAvgR.textContent = formatNum(summary.avg_r, 3);
   els.metricExpectancy.textContent = `${formatNum(summary.expectancy_pct, 3)}%`;
   els.metricStopRate.textContent = `${formatNum(summary.stop_rate, 2)}%`;
-  els.metricMode.textContent = mode;
+  els.metricMode.textContent = labelForViewMode(mode);
 }
 
 function renderPaperMetrics(summary = {}) {
@@ -730,7 +782,7 @@ function drawEquityCurve(points) {
 }
 
 function drawPaperEquityCurve(points) {
-  drawCurveOnCanvas(els.paperEquityCanvas, points, 'Нет данных paper equity');
+  drawCurveOnCanvas(els.paperEquityCanvas, points, 'Нет данных по кривой капитала');
 }
 
 function setPrimaryHeader(labels) {
@@ -742,7 +794,7 @@ function setPrimaryHeader(labels) {
 }
 
 function renderBacktestTrades(trades = []) {
-  setPrimaryHeader(['Symbol', 'Regime', 'Side', 'Entry', 'Exit', 'Net PnL', 'R', 'Reason']);
+  setPrimaryHeader(['Символ', 'Режим', 'Сторона', 'Вход', 'Выход', 'Чистый PnL', 'R', 'Причина']);
   els.primaryTbody.innerHTML = '';
   trades.forEach((trade) => {
     const tr = document.createElement('tr');
@@ -762,7 +814,7 @@ function renderBacktestTrades(trades = []) {
 }
 
 function renderWalkforwardSegments(segments = []) {
-  setPrimaryHeader(['#', 'Train', 'Test', 'Best params', 'Return', 'Max DD', 'Trades', 'Objective']);
+  setPrimaryHeader(['#', 'Обучение', 'Проверка', 'Лучшие параметры', 'Доходность', 'Макс. просадка', 'Сделки', 'Целевая оценка']);
   els.primaryTbody.innerHTML = '';
   segments.forEach((segment) => {
     const testSummary = segment.test_summary || JSON.parse(segment.metrics_json || '{}').test_summary || {};
@@ -784,7 +836,7 @@ function renderWalkforwardSegments(segments = []) {
 
 
 function renderOptimizerTrials(trials = []) {
-  setPrimaryHeader(['#', 'Score', 'Return', 'Max DD', 'PF', 'Trades', 'Stop rate', 'Params']);
+  setPrimaryHeader(['#', 'Балл', 'Доходность', 'Макс. просадка', 'PF', 'Сделки', 'Стоп-выходы', 'Параметры']);
   els.primaryTbody.innerHTML = '';
   trials.forEach((trial) => {
     const summary = trial.summary || {};
@@ -873,6 +925,7 @@ async function refreshSymbols({ refreshCatalog = false } = {}) {
   renderPicker('csv');
   renderPicker('tiny');
   renderPicker('optimizer');
+  renderPicker('research');
   updateCatalogHints();
 
   const preferred = selectedPickerSymbols('demo').filter((symbol) => state.symbols.includes(symbol));
@@ -903,15 +956,15 @@ async function loadConfig() {
 
 async function loadLiveStatus() {
   const status = await api('/api/live-adapter/status');
-  els.liveStatus.textContent = status.enabled ? (status.dry_run ? 'dry-run' : 'live') : 'disabled';
-  els.liveMeta.textContent = `${status.testnet ? 'testnet' : 'mainnet'} / key=${status.api_key_present ? 'yes' : 'no'} / secret=${status.api_secret_present ? 'yes' : 'no'}`;
+  els.liveStatus.textContent = status.enabled ? (status.dry_run ? 'сухой прогон' : 'боевой режим') : 'отключён';
+  els.liveMeta.textContent = `${status.testnet ? 'тестовая сеть' : 'основная сеть'} / ключ=${status.api_key_present ? 'есть' : 'нет'} / секрет=${status.api_secret_present ? 'есть' : 'нет'}`;
 }
 
 async function loadLatestRun() {
   const data = await api('/api/runs?limit=1');
   const run = data.runs?.[0];
   if (!run) {
-    log('Backtest-запусков пока нет', 'warn');
+    log('Запусков бэктеста пока нет', 'warn');
     return;
   }
   state.latestRunId = run.id;
@@ -936,7 +989,7 @@ async function loadLatestRun() {
   drawEquityCurve(details.equity);
   renderBacktestTrades(details.trades);
   renderSecondaryRows(details.signals.map((s) => ({ created_at: s.ts, level: s.side, message: `${s.symbol} ${s.regime} ${formatNum(s.score, 3)} ${s.notes || ''}` })), 'events');
-  els.runBadge.textContent = `Backtest #${run.id}`;
+  els.runBadge.textContent = `Бэктест #${run.id}`;
   state.viewMode = 'backtest';
   setActiveTab('research');
 }
@@ -945,7 +998,7 @@ async function loadLatestWalkforward() {
   const data = await api('/api/walkforward-runs?limit=1');
   const run = data.runs?.[0];
   if (!run) {
-    log('Walk-forward запусков пока нет', 'warn');
+    log('Запусков прогона по окнам пока нет', 'warn');
     return;
   }
   state.latestWalkforwardId = run.id;
@@ -977,7 +1030,7 @@ async function loadLatestWalkforward() {
     return { ts: seg.test_end_ts, equity: payload.test_summary.ending_equity || idx };
   });
   if (pseudoEquity.length > 1) drawEquityCurve(pseudoEquity);
-  els.runBadge.textContent = `Walk-forward #${run.id}`;
+  els.runBadge.textContent = `Прогон по окнам #${run.id}`;
   renderSecondaryRows(details.segments.map((seg) => ({ created_at: seg.test_end_ts, level: `segment ${seg.segment_no}`, message: seg.best_params_json })), 'events');
   state.viewMode = 'walk-forward';
   setActiveTab('research');
@@ -988,13 +1041,13 @@ async function loadLatestOptimizer() {
   const data = await api('/api/optimizer-runs?limit=1');
   const run = data.runs?.[0];
   if (!run) {
-    log('Optimizer-запусков пока нет', 'warn');
+    log('Запусков ручного оптимизатора пока нет', 'warn');
     return;
   }
   state.latestOptimizerId = run.id;
   const details = await api(`/api/optimizer-runs/${run.id}`);
   state.latestOptimizerBestParams = details.best_params || null;
-  renderMetrics(details.best_summary, 'optimizer');
+  renderMetrics(details.best_summary, 'ручной оптимизатор');
   drawEquityCurve(details.best_equity_curve || []);
   renderOptimizerTrials(details.trials || []);
   renderSecondaryRows((details.segments || []).map((seg) => ({
@@ -1002,7 +1055,7 @@ async function loadLatestOptimizer() {
     level: `seg ${seg.segment_no}`,
     message: `ret=${formatNum(seg.summary?.total_return_pct, 2)}% pf=${seg.summary?.profit_factor ?? '—'} trades=${seg.summary?.trades_count ?? '—'}`,
   })), 'events');
-  els.runBadge.textContent = `Optimizer #${run.id}`;
+  els.runBadge.textContent = `Ручной оптимизатор #${run.id}`;
   state.viewMode = 'optimizer';
   setActiveTab('research');
 }
@@ -1012,7 +1065,7 @@ async function loadPaperSession(sessionId = state.latestPaperSessionId) {
     const sessions = await api('/api/paper-sessions?limit=1');
     const latest = sessions.sessions?.[0];
     if (!latest) {
-      log('Paper-сессий пока нет', 'warn');
+      log('Сессий бумажного прогона пока нет', 'warn');
       return;
     }
     sessionId = latest.id;
@@ -1022,7 +1075,7 @@ async function loadPaperSession(sessionId = state.latestPaperSessionId) {
   const session = data.session;
   const stateJson = session.state || {};
   els.paperStatus.textContent = `${session.status} / #${session.id}`;
-  els.paperMeta.textContent = `index=${session.current_index} / equity=${formatNum(session.current_equity)} / open=${(stateJson.open_positions || []).length}`;
+  els.paperMeta.textContent = `индекс=${session.current_index} / капитал=${formatNum(session.current_equity)} / открыто позиций=${(stateJson.open_positions || []).length}`;
   const summary = data.summary || {
     starting_equity: session.starting_equity,
     ending_equity: session.current_equity,
@@ -1040,8 +1093,8 @@ async function loadPaperSession(sessionId = state.latestPaperSessionId) {
   drawPaperEquityCurve(data.equity);
   renderPaperTrades(data.trades);
   renderPaperEvents(data.events || []);
-  if (els.paperRunBadge) els.paperRunBadge.textContent = `Paper #${session.id}`;
-  if (els.paperRunMeta) els.paperRunMeta.textContent = `return=${formatNum(summary.total_return_pct, 2)}% / PF=${summary.profit_factor ?? '—'} / trades=${summary.trades_count ?? '—'}`;
+  if (els.paperRunBadge) els.paperRunBadge.textContent = `Бумажный прогон #${session.id}`;
+  if (els.paperRunMeta) els.paperRunMeta.textContent = `доходность=${formatNum(summary.total_return_pct, 2)}% / PF=${summary.profit_factor ?? '—'} / сделки=${summary.trades_count ?? '—'}`;
   state.viewMode = 'paper';
   setActiveTab('paper');
   return data;
@@ -1071,31 +1124,31 @@ els.refreshSymbolsBtn.addEventListener('click', async () => {
 
 els.runBacktestBtn.addEventListener('click', async () => {
   try {
-    const result = await runAsyncJob('Backtest', '/api/run-backtest', { symbols: selectedSymbols(), overrides: collectConfigForm() });
+    const result = await runAsyncJob('Бэктест', '/api/run-backtest', { symbols: selectedSymbols(), overrides: collectConfigForm() });
     state.latestRunId = result.run_id;
     renderMetrics(result.summary, 'backtest');
     drawEquityCurve(result.equity_curve);
     renderBacktestTrades(result.trades);
     renderSecondaryRows(result.signals.slice(-100).reverse().map((s) => ({ created_at: s.ts, level: s.side, message: `${s.symbol} ${s.regime} ${formatNum(s.score, 3)} ${s.notes}` })), 'events');
-    els.runBadge.textContent = `Backtest #${result.run_id}`;
+    els.runBadge.textContent = `Бэктест #${result.run_id}`;
     state.viewMode = 'backtest';
     setActiveTab('research');
-    log(`Backtest завершён: run #${result.run_id}, trades=${result.summary.trades_count}, signals=${result.signals_count}`, 'success');
+    log(`Бэктест завершён: запуск #${result.run_id}, сделок=${result.summary.trades_count}, сигналов=${result.signals_count}`, 'success');
   } catch (error) { log(error.message.split('\n')[0], 'error'); }
 });
 
 els.runWalkforwardBtn.addEventListener('click', async () => {
   try {
-    const result = await runAsyncJob('Walk-forward', '/api/run-walkforward', { symbols: selectedSymbols(), overrides: collectConfigForm() });
+    const result = await runAsyncJob('Прогон по окнам', '/api/run-walkforward', { symbols: selectedSymbols(), overrides: collectConfigForm() });
     state.latestWalkforwardId = result.walkforward_run_id;
     renderMetrics(result.summary, 'walk-forward');
     drawEquityCurve(result.equity_curve);
     renderWalkforwardSegments(result.segments);
     renderSecondaryRows(result.segments.map((seg) => ({ created_at: seg.test_end_ts, level: `segment ${seg.segment_no}`, message: JSON.stringify(seg.best_params) })), 'events');
-    els.runBadge.textContent = `Walk-forward #${result.walkforward_run_id}`;
+    els.runBadge.textContent = `Прогон по окнам #${result.walkforward_run_id}`;
     state.viewMode = 'walk-forward';
     setActiveTab('research');
-    log(`Walk-forward завершён: run #${result.walkforward_run_id}, segments=${result.segments.length}`, 'success');
+    log(`Прогон по окнам завершён: запуск #${result.walkforward_run_id}, сегментов=${result.segments.length}`, 'success');
   } catch (error) { log(error.message.split('\n')[0], 'error'); }
 });
 
@@ -1103,13 +1156,13 @@ els.runWalkforwardBtn.addEventListener('click', async () => {
 els.runOptimizerBtn?.addEventListener('click', async () => {
   try {
     const symbol = selectedPickerValue('optimizer');
-    if (!symbol) throw new Error('Выбери символ для optimizer');
+    if (!symbol) throw new Error('Выбери символ для ручного оптимизатора');
     const overrides = { ...collectConfigForm(), ...collectOptimizerOverrides() };
     const trials = readNumberInput(els.optimizerTrials, { fallback: 24 });
-    const result = await runAsyncJob('Optimizer', '/api/run-optimizer', { symbols: [symbol], trials, overrides });
+    const result = await runAsyncJob('Ручной оптимизатор', '/api/run-optimizer', { symbols: [symbol], trials, overrides });
     state.latestOptimizerId = result.optimizer_run_id;
     state.latestOptimizerBestParams = result.best_params || null;
-    renderMetrics(result.best_summary, 'optimizer');
+    renderMetrics(result.best_summary, 'ручной оптимизатор');
     drawEquityCurve(result.best_equity_curve || []);
     renderOptimizerTrials(result.trials || []);
     renderSecondaryRows((result.segments || []).map((seg) => ({
@@ -1117,10 +1170,10 @@ els.runOptimizerBtn?.addEventListener('click', async () => {
       level: `seg ${seg.segment_no}`,
       message: `ret=${formatNum(seg.summary?.total_return_pct, 2)}% pf=${seg.summary?.profit_factor ?? '—'} trades=${seg.summary?.trades_count ?? '—'}`,
     })), 'events');
-    els.runBadge.textContent = `Optimizer #${result.optimizer_run_id}`;
+    els.runBadge.textContent = `Ручной оптимизатор #${result.optimizer_run_id}`;
     state.viewMode = 'optimizer';
     setActiveTab('research');
-    log(`Optimizer завершён: run #${result.optimizer_run_id}, лучший score=${formatNum(result.best_score, 3)}`, 'success');
+    log(`Ручной оптимизатор завершён: запуск #${result.optimizer_run_id}, лучший балл=${formatNum(result.best_score, 3)}`, 'success');
   } catch (error) {
     log(error.message.split('\n')[0], 'error');
   }
@@ -1128,42 +1181,46 @@ els.runOptimizerBtn?.addEventListener('click', async () => {
 
 els.applyBestOptimizerBtn?.addEventListener('click', async () => {
   try {
-    if (!state.latestOptimizerId) throw new Error('Сначала запусти optimizer');
+    if (!state.latestOptimizerId) throw new Error('Сначала запусти ручной оптимизатор');
     const payload = await api(`/api/optimizer-runs/${state.latestOptimizerId}/apply-best`, { method: 'POST' });
     fillConfigForm(payload.config);
-    log('Лучший набор optimizer применён в конфиг', 'success');
+    log('Лучший набор ручного оптимизатора применён в базовый профиль', 'success');
   } catch (error) { log(error.message, 'error'); }
 });
 
 els.researchPreset?.addEventListener('change', () => {
   const preset = selectedResearchPreset();
-  if (preset) setResearchStatus(preset.label || preset.name, preset.description || '');
+  if (preset) {
+    setResearchStatus(preset.label || preset.name, preset.description || '');
+    summarizeResearchPreset(preset);
+  }
 });
 
 els.applyResearchPresetBtn?.addEventListener('click', () => {
   const preset = selectedResearchPreset();
-  if (!preset) return log('Preset не найден', 'warn');
+  if (!preset) return log('Сценарий не найден', 'warn');
   applyResearchPresetToForm(preset);
 });
 
 els.runResearchBtn?.addEventListener('click', async () => {
   try {
-    const symbol = selectedPickerValue('optimizer');
-    if (!symbol) throw new Error('Выбери символ для auto research в блоке optimizer');
+    const symbol = selectedPickerValue('research');
+    if (!symbol) throw new Error('Выбери символ для автоисследования');
     const preset = selectedResearchPreset();
-    if (!preset) throw new Error('Сначала выбери preset auto research');
-    setResearchStatus('running', `${preset.label || preset.name} / ${symbol}`);
+    if (!preset) throw new Error('Сначала выбери сценарий автоисследования');
+    setResearchStatus('выполняется', `${preset.label || preset.name} / ${symbol}`);
     setActiveTab('research');
-    const result = await runAsyncJob('Auto research', '/api/run-auto-research', {
+    const result = await runAsyncJob('Автоисследование', '/api/run-auto-research', {
       symbols: [symbol],
       preset_name: preset.name,
       note: els.researchNote?.value?.trim() || '',
+      base_overrides: collectConfigForm(),
     });
     renderResearchRun(result);
-    log(`Auto research завершён: ${result.research_run_id}`, 'success');
+    log(`Автоисследование завершено: ${result.research_run_id}`, 'success');
   } catch (error) {
     log(error.message.split('\n')[0], 'error');
-    setResearchStatus('error', error.message.split('\n')[0]);
+    setResearchStatus('ошибка', error.message.split('\n')[0]);
   }
 });
 
@@ -1172,12 +1229,12 @@ els.loadLatestResearchBtn?.addEventListener('click', async () => {
 });
 
 els.downloadResearchReportBtn?.addEventListener('click', () => {
-  if (!state.latestResearchId) return log('Нет auto research run для экспорта', 'warn');
+  if (!state.latestResearchId) return log('Нет запуска автоисследования для экспорта', 'warn');
   window.open(`/api/research-runs/${state.latestResearchId}/artifact/report.md`, '_blank');
 });
 
 els.downloadResearchCsvBtn?.addEventListener('click', () => {
-  if (!state.latestResearchId) return log('Нет auto research run для экспорта', 'warn');
+  if (!state.latestResearchId) return log('Нет запуска автоисследования для экспорта', 'warn');
   window.open(`/api/research-runs/${state.latestResearchId}/artifact/combined_best_configs.csv`, '_blank');
 });
 
@@ -1195,22 +1252,22 @@ els.createPaperBtn.addEventListener('click', async () => {
     state.latestPaperSessionId = result.session.id;
     await loadPaperSession(result.session.id);
     setActiveTab('paper');
-    log(`Создана paper-сессия #${result.session.id}`, 'success');
+    log(`Создана сессия бумажного прогона #${result.session.id}`, 'success');
   } catch (error) { log(error.message, 'error'); }
 });
 
 els.paperStepBtn.addEventListener('click', async () => {
   try {
-    if (!state.latestPaperSessionId) throw new Error('Сначала создай paper-сессию');
+    if (!state.latestPaperSessionId) throw new Error('Сначала создай сессию бумажного прогона');
     await api(`/api/paper-sessions/${state.latestPaperSessionId}/step`, { method: 'POST', body: JSON.stringify({ steps: readNumberInput(els.paperSteps, { fallback: 1 }) || 1 }) });
     await loadPaperSession(state.latestPaperSessionId);
-    log('Paper-сессия продвинута', 'success');
+    log('Сессия бумажного прогона продвинута', 'success');
   } catch (error) { log(error.message, 'error'); }
 });
 
 els.paperStartBtn.addEventListener('click', async () => {
   try {
-    if (!state.latestPaperSessionId) throw new Error('Сначала создай paper-сессию');
+    if (!state.latestPaperSessionId) throw new Error('Сначала создай сессию бумажного прогона');
     await api(`/api/paper-sessions/${state.latestPaperSessionId}/start`, { method: 'POST' });
     await loadPaperSession(state.latestPaperSessionId);
     log('Background replay запущен', 'success');
@@ -1229,7 +1286,7 @@ els.paperStartBtn.addEventListener('click', async () => {
 
 els.paperStopBtn.addEventListener('click', async () => {
   try {
-    if (!state.latestPaperSessionId) throw new Error('Нет paper-сессии');
+    if (!state.latestPaperSessionId) throw new Error('Нет сессии бумажного прогона');
     await api(`/api/paper-sessions/${state.latestPaperSessionId}/stop`, { method: 'POST' });
     if (window.paperPollTimer) { clearInterval(window.paperPollTimer); window.paperPollTimer = null; }
     await loadPaperSession(state.latestPaperSessionId);
@@ -1264,12 +1321,12 @@ els.exportWfBtn.addEventListener('click', () => {
 });
 
 els.exportPaperBtn.addEventListener('click', () => {
-  if (!state.latestPaperSessionId) return log('Нет paper session для экспорта', 'warn');
+  if (!state.latestPaperSessionId) return log('Нет сессии бумажного прогона для экспорта', 'warn');
   window.open(`/api/paper-sessions/${state.latestPaperSessionId}/export/trades.csv`, '_blank');
 });
 
 els.exportOptimizerBtn?.addEventListener('click', () => {
-  if (!state.latestOptimizerId) return log('Нет optimizer run для экспорта', 'warn');
+  if (!state.latestOptimizerId) return log('Нет запуска ручного оптимизатора для экспорта', 'warn');
   window.open(`/api/optimizer-runs/${state.latestOptimizerId}/export/trials.csv`, '_blank');
 });
 
@@ -1278,7 +1335,7 @@ els.configForm.addEventListener('submit', async (event) => {
   try {
     const result = await api('/api/config', { method: 'POST', body: JSON.stringify(collectConfigForm()) });
     fillConfigForm(result);
-    log('Конфигурация сохранена', 'success');
+    log('Базовый профиль сохранён', 'success');
   } catch (error) { log(error.message, 'error'); }
 });
 
