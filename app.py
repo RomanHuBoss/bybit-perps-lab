@@ -5,7 +5,7 @@ import io
 import json
 from pathlib import Path
 
-from flask import Flask, Response, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request, send_file
 
 from config import APP_CONFIG, DEFAULT_SETTINGS
 from database import ensure_database, get_settings, list_live_orders, update_settings
@@ -22,6 +22,13 @@ from services.data_service import (
 from services.live_adapter import live_adapter
 from services.optimizer_engine import OptimizerEngine, get_optimizer_details, list_optimizer_runs
 from services.paper_engine import paper_manager
+from services.research_runner import (
+    AutoResearchRunner,
+    get_research_presets,
+    get_research_run_details,
+    list_research_runs,
+    resolve_research_artifact,
+)
 from services.trade_service import TradePlanner
 from services.walkforward_engine import WalkForwardEngine, get_walkforward_details, list_walkforward_runs
 
@@ -247,6 +254,45 @@ def create_app() -> Flask:
         merged.update(details['best_params'])
         saved = update_settings(merged)
         return jsonify({'applied': details['best_params'], 'config': saved})
+
+    @app.get('/api/research-presets')
+    def api_research_presets():
+        return jsonify({'presets': get_research_presets()})
+
+    @app.post('/api/run-auto-research')
+    def api_run_auto_research():
+        payload = request.get_json(force=True, silent=True) or {}
+        symbols = payload.get('symbols') or []
+        preset_name = payload.get('preset_name')
+        plan = payload.get('plan')
+        if not plan:
+            presets = {preset['name']: preset for preset in get_research_presets()}
+            if preset_name not in presets:
+                raise ValueError(f'Unknown research preset: {preset_name}')
+            plan = presets[preset_name]
+        note = payload.get('note')
+        if _as_bool(payload.get('async'), default=False):
+            job = job_manager.submit(
+                'run-auto-research',
+                lambda: AutoResearchRunner().run(symbols=symbols, plan=plan, plan_name=preset_name or plan.get('name'), note=note),
+                meta={'symbols': symbols, 'preset_name': preset_name or plan.get('name')},
+            )
+            return jsonify({'job_id': job.id, 'status': job.status, 'kind': job.kind})
+        return jsonify(AutoResearchRunner().run(symbols=symbols, plan=plan, plan_name=preset_name or plan.get('name'), note=note))
+
+    @app.get('/api/research-runs')
+    def api_research_runs():
+        limit = int(request.args.get('limit', 20))
+        return jsonify({'runs': list_research_runs(limit=limit)})
+
+    @app.get('/api/research-runs/<run_id>')
+    def api_research_run_details(run_id: str):
+        return jsonify(get_research_run_details(run_id))
+
+    @app.get('/api/research-runs/<run_id>/artifact/<path:filename>')
+    def api_research_artifact(run_id: str, filename: str):
+        artifact_path = resolve_research_artifact(run_id, filename)
+        return send_file(artifact_path, as_attachment=True, download_name=artifact_path.name)
 
     @app.post('/api/run-walkforward')
     def api_run_walkforward():

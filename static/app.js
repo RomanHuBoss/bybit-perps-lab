@@ -8,6 +8,9 @@ const state = {
   latestOptimizerId: null,
   latestOptimizerBestParams: null,
   latestPaperSessionId: null,
+  latestResearchId: null,
+  latestResearchManifest: null,
+  researchPresets: [],
   config: {},
   viewMode: 'idle',
   pickers: {},
@@ -51,6 +54,15 @@ const els = {
   optimizerStepBars: document.getElementById('optimizerStepBars'),
   optimizerMaxSegments: document.getElementById('optimizerMaxSegments'),
   optimizerMinTrades: document.getElementById('optimizerMinTrades'),
+  researchPreset: document.getElementById('researchPreset'),
+  researchNote: document.getElementById('researchNote'),
+  applyResearchPresetBtn: document.getElementById('applyResearchPresetBtn'),
+  runResearchBtn: document.getElementById('runResearchBtn'),
+  loadLatestResearchBtn: document.getElementById('loadLatestResearchBtn'),
+  downloadResearchReportBtn: document.getElementById('downloadResearchReportBtn'),
+  downloadResearchCsvBtn: document.getElementById('downloadResearchCsvBtn'),
+  researchStatus: document.getElementById('researchStatus'),
+  researchMeta: document.getElementById('researchMeta'),
   paperName: document.getElementById('paperName'),
   paperSteps: document.getElementById('paperSteps'),
   symbolsList: document.getElementById('symbolsList'),
@@ -442,6 +454,125 @@ function collectOptimizerOverrides() {
     optimizer_max_segments: readNumberInput(els.optimizerMaxSegments, { fallback: 8 }),
     optimizer_min_trades_test: readNumberInput(els.optimizerMinTrades, { fallback: 12 }),
   };
+}
+
+
+function selectedResearchPreset() {
+  return state.researchPresets.find((preset) => preset.name === els.researchPreset?.value) || null;
+}
+
+function setResearchStatus(title, meta = '') {
+  if (els.researchStatus) els.researchStatus.textContent = title || '—';
+  if (els.researchMeta) els.researchMeta.textContent = meta || '—';
+}
+
+function fillResearchPresetOptions() {
+  if (!els.researchPreset) return;
+  els.researchPreset.innerHTML = '';
+  state.researchPresets.forEach((preset) => {
+    const option = document.createElement('option');
+    option.value = preset.name;
+    option.textContent = preset.label || preset.name;
+    els.researchPreset.appendChild(option);
+  });
+  if (state.researchPresets.length && !els.researchPreset.value) {
+    els.researchPreset.value = state.researchPresets[0].name;
+  }
+  const preset = selectedResearchPreset();
+  if (preset) setResearchStatus(preset.label || preset.name, preset.description || '');
+}
+
+function applyResearchPresetToForm(preset) {
+  if (!preset || !preset.stages?.length) return;
+  const stage = preset.stages[0];
+  const nextConfig = { ...state.config, ...(stage.fixed_overrides || {}) };
+  const paramSpecs = stage.param_specs || stage.fallback_param_specs || {};
+  Object.entries(paramSpecs).forEach(([name, spec]) => {
+    const lower = Number(spec.lower);
+    const upper = Number(spec.upper);
+    const step = Number(spec.step || 0);
+    const value = lower === upper ? lower : Number(((lower + upper) / 2).toFixed(step >= 1 ? 0 : 6));
+    nextConfig[name] = value;
+  });
+  fillConfigForm(nextConfig);
+  if (stage.optimizer) {
+    if (els.optimizerTrainBars) els.optimizerTrainBars.value = stage.optimizer.optimizer_train_bars ?? els.optimizerTrainBars.value;
+    if (els.optimizerTestBars) els.optimizerTestBars.value = stage.optimizer.optimizer_test_bars ?? els.optimizerTestBars.value;
+    if (els.optimizerStepBars) els.optimizerStepBars.value = stage.optimizer.optimizer_step_bars ?? els.optimizerStepBars.value;
+    if (els.optimizerMaxSegments) els.optimizerMaxSegments.value = stage.optimizer.optimizer_max_segments ?? els.optimizerMaxSegments.value;
+    if (els.optimizerMinTrades) els.optimizerMinTrades.value = stage.optimizer.optimizer_min_trades_test ?? els.optimizerMinTrades.value;
+  }
+  if (els.optimizerTrials) els.optimizerTrials.value = stage.trials ?? els.optimizerTrials.value;
+  setResearchStatus(`Preset: ${preset.label || preset.name}`, `${preset.description || ''}`);
+  log(`Preset загружен: ${preset.label || preset.name}`, 'success');
+}
+
+function renderResearchStages(stages = []) {
+  setPrimaryHeader(['Stage', 'Mode', 'Run', 'Eligible', 'Profitable', 'Return', 'PF', 'Winner']);
+  els.primaryTbody.innerHTML = '';
+  stages.forEach((stage) => {
+    const best = stage.winner_trial || stage.best_summary || {};
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${stage.stage_index}. ${stage.stage_name}</td>
+      <td>${stage.mode}</td>
+      <td>${stage.optimizer_run_id}</td>
+      <td>${stage.eligible_trials_count}</td>
+      <td>${stage.profitable_eligible_trials_count}</td>
+      <td class="${Number(best.total_return_pct) >= 0 ? 'pnl-pos' : 'pnl-neg'}">${formatNum(best.total_return_pct, 2)}%</td>
+      <td>${best.profit_factor ?? '—'}</td>
+      <td>${stage.winner_trial ? JSON.stringify(stage.winner_trial).slice(0, 120) : '—'}</td>
+    `;
+    els.primaryTbody.appendChild(tr);
+  });
+}
+
+function renderResearchRun(manifest) {
+  if (!manifest) return;
+  state.latestResearchId = manifest.research_run_id;
+  state.latestResearchManifest = manifest;
+  const winner = manifest.winner || {};
+  renderMetrics({
+    starting_equity: state.config.starting_equity,
+    ending_equity: null,
+    total_return_pct: winner.total_return_pct,
+    max_drawdown_pct: winner.max_drawdown_pct,
+    win_rate: winner.win_rate,
+    profit_factor: winner.profit_factor,
+    sharpe: winner.sharpe,
+    trades_count: winner.trades_count,
+    avg_r: winner.avg_r,
+    expectancy_pct: winner.expectancy_pct,
+    stop_rate: winner.stop_rate,
+  }, `research:${manifest.plan_name}`);
+  if (winner.best_equity_curve?.length > 1) drawEquityCurve(winner.best_equity_curve);
+  else drawEquityCurve([]);
+  renderResearchStages(manifest.stages || []);
+  renderSecondaryRows((manifest.stages || []).map((stage) => ({
+    created_at: manifest.created_at,
+    level: `${stage.stage_name} / ${stage.mode}`,
+    message: `eligible=${stage.eligible_trials_count}, profitable=${stage.profitable_eligible_trials_count}, winner=${JSON.stringify(stage.winner_trial || {})}`
+  })), 'events');
+  els.runBadge.textContent = `Research ${manifest.research_run_id}`;
+  state.viewMode = 'research';
+  setResearchStatus(manifest.plan_label || manifest.plan_name, `winner: ${winner.stage_name || '—'} / ret=${formatNum(winner.total_return_pct, 2)}% / PF=${winner.profit_factor ?? '—'}`);
+}
+
+async function loadResearchPresets() {
+  const payload = await api('/api/research-presets');
+  state.researchPresets = payload.presets || [];
+  fillResearchPresetOptions();
+}
+
+async function loadLatestResearch() {
+  const payload = await api('/api/research-runs?limit=1');
+  const run = payload.runs?.[0];
+  if (!run) {
+    log('Auto research запусков пока нет', 'warn');
+    return;
+  }
+  const details = await api(`/api/research-runs/${run.research_run_id}`);
+  renderResearchRun(details);
 }
 
 function renderSymbols() {
@@ -904,6 +1035,51 @@ els.applyBestOptimizerBtn?.addEventListener('click', async () => {
   } catch (error) { log(error.message, 'error'); }
 });
 
+els.researchPreset?.addEventListener('change', () => {
+  const preset = selectedResearchPreset();
+  if (preset) setResearchStatus(preset.label || preset.name, preset.description || '');
+});
+
+els.applyResearchPresetBtn?.addEventListener('click', () => {
+  const preset = selectedResearchPreset();
+  if (!preset) return log('Preset не найден', 'warn');
+  applyResearchPresetToForm(preset);
+});
+
+els.runResearchBtn?.addEventListener('click', async () => {
+  try {
+    const symbol = selectedPickerValue('optimizer');
+    if (!symbol) throw new Error('Выбери символ для auto research в блоке optimizer');
+    const preset = selectedResearchPreset();
+    if (!preset) throw new Error('Сначала выбери preset auto research');
+    setResearchStatus('running', `${preset.label || preset.name} / ${symbol}`);
+    const result = await runAsyncJob('Auto research', '/api/run-auto-research', {
+      symbols: [symbol],
+      preset_name: preset.name,
+      note: els.researchNote?.value?.trim() || '',
+    });
+    renderResearchRun(result);
+    log(`Auto research завершён: ${result.research_run_id}`, 'success');
+  } catch (error) {
+    log(error.message.split('\n')[0], 'error');
+    setResearchStatus('error', error.message.split('\n')[0]);
+  }
+});
+
+els.loadLatestResearchBtn?.addEventListener('click', async () => {
+  try { await loadLatestResearch(); } catch (error) { log(error.message, 'error'); }
+});
+
+els.downloadResearchReportBtn?.addEventListener('click', () => {
+  if (!state.latestResearchId) return log('Нет auto research run для экспорта', 'warn');
+  window.open(`/api/research-runs/${state.latestResearchId}/artifact/report.md`, '_blank');
+});
+
+els.downloadResearchCsvBtn?.addEventListener('click', () => {
+  if (!state.latestResearchId) return log('Нет auto research run для экспорта', 'warn');
+  window.open(`/api/research-runs/${state.latestResearchId}/artifact/combined_best_configs.csv`, '_blank');
+});
+
 els.createPaperBtn.addEventListener('click', async () => {
   try {
     const result = await api('/api/paper-sessions', {
@@ -1026,6 +1202,7 @@ els.csvForm.addEventListener('submit', async (event) => {
   try {
     initPickers();
     await loadConfig();
+    await loadResearchPresets();
     await refreshSymbols();
     await loadLiveStatus();
     await loadLatestRun();

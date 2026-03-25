@@ -23,7 +23,7 @@ class ParamSpec:
     step: float
 
 
-PARAM_SPECS: list[ParamSpec] = [
+DEFAULT_PARAM_SPECS: list[ParamSpec] = [
     ParamSpec('risk_per_trade', 0.0015, 0.0045, 0.0005),
     ParamSpec('trend_strength_min', 0.0008, 0.0030, 0.0001),
     ParamSpec('reversion_zscore_threshold', 1.8, 3.2, 0.1),
@@ -39,6 +39,7 @@ class OptimizerEngine:
     def __init__(self, settings: dict[str, Any]):
         self.settings = dict(settings)
         self.rng = np.random.default_rng(int(self.settings.get('optimizer_random_seed', 42)))
+        self.param_specs = self._resolve_param_specs(self.settings.get('optimizer_param_specs'))
 
     def run(self, symbols: list[str], trials: int | None = None) -> dict[str, Any]:
         symbols = [s.upper() for s in symbols]
@@ -104,9 +105,31 @@ class OptimizerEngine:
             'segments': best_result['segments'],
         }
 
+
+    @staticmethod
+    def _resolve_param_specs(raw_specs: dict[str, Any] | None) -> list[ParamSpec]:
+        resolved: list[ParamSpec] = []
+        defaults = {spec.name: spec for spec in DEFAULT_PARAM_SPECS}
+        if not raw_specs:
+            return [ParamSpec(spec.name, spec.lower, spec.upper, spec.step) for spec in DEFAULT_PARAM_SPECS]
+        for name, default in defaults.items():
+            raw = raw_specs.get(name) if isinstance(raw_specs, dict) else None
+            if raw is None:
+                resolved.append(ParamSpec(default.name, default.lower, default.upper, default.step))
+                continue
+            lower = float(raw.get('lower', default.lower))
+            upper = float(raw.get('upper', default.upper))
+            step = float(raw.get('step', default.step))
+            if step <= 0:
+                raise ValueError(f'optimizer_param_specs[{name}].step must be positive.')
+            if upper < lower:
+                raise ValueError(f'optimizer_param_specs[{name}] upper must be >= lower.')
+            resolved.append(ParamSpec(name, lower, upper, step))
+        return resolved
+
     def _baseline_params(self) -> dict[str, Any]:
         out = {}
-        for spec in PARAM_SPECS:
+        for spec in self.param_specs:
             current = float(self.settings.get(spec.name, spec.lower))
             out[spec.name] = self._round_to_step(current, spec)
         return out
@@ -114,7 +137,7 @@ class OptimizerEngine:
     def _sample_params(self, best_params: dict[str, Any] | None, trial_no: int, trials_count: int) -> dict[str, Any]:
         exploit = best_params is not None and trial_no > max(3, int(trials_count * 0.45))
         params: dict[str, Any] = {}
-        for spec in PARAM_SPECS:
+        for spec in self.param_specs:
             if exploit:
                 center = float(best_params.get(spec.name, self.settings.get(spec.name, spec.lower)))
                 span = (spec.upper - spec.lower) * (0.35 if trial_no < trials_count * 0.75 else 0.18)
@@ -302,7 +325,7 @@ class OptimizerEngine:
             'best_trial_no': best_result['trial_no'],
             'best_equity_curve': best_result['equity_curve'],
             'segments': best_result['segments'],
-            'search_space': {spec.name: {'lower': spec.lower, 'upper': spec.upper, 'step': spec.step} for spec in PARAM_SPECS},
+            'search_space': {spec.name: {'lower': spec.lower, 'upper': spec.upper, 'step': spec.step} for spec in self.param_specs},
             'min_trades_hard_filter': int(self.settings.get('optimizer_min_trades_test', 12)),
             'eligible_trials_count': sum(1 for trial in trial_results if trial.get('eligible')),
         }

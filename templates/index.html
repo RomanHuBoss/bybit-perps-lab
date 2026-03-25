@@ -82,6 +82,32 @@
       </section>
 
       <section class="panel compact">
+        <h2>Автоисследование</h2>
+        <div class="stack">
+          <label>
+            <span>Preset</span>
+            <select id="researchPreset"></select>
+          </label>
+          <label><span>Заметка</span><input id="researchNote" type="text" placeholder="например: SOLUSDT / 60d / patch v4" /></label>
+          <div class="actions small-actions">
+            <button id="applyResearchPresetBtn">Заполнить preset</button>
+            <button id="runResearchBtn" class="primary">Запустить автоисследование</button>
+            <button id="loadLatestResearchBtn">Последнее исследование</button>
+          </div>
+          <div class="actions small-actions">
+            <button id="downloadResearchReportBtn">Скачать report.md</button>
+            <button id="downloadResearchCsvBtn">Скачать combined CSV</button>
+          </div>
+          <div class="status-box research-box">
+            <span>Auto research</span>
+            <strong id="researchStatus">—</strong>
+            <small id="researchMeta">Использует символ из блока optimizer и сам прогоняет stage-сценарии.</small>
+          </div>
+          <p class="hint">Preset автоматически включает режимы trend/reversion, окна optimizer и сужение диапазонов на втором этапе. Больше не нужно вручную переставлять чекбоксы и числа для каждого цикла.</p>
+        </div>
+      </section>
+
+      <section class="panel compact">
         <h2>Параметры</h2>
         <form id="configForm" class="stack">
           <div class="grid two">

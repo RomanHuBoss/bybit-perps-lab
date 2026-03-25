@@ -19,6 +19,7 @@ from services.data_service import generate_demo_market_data, load_candles, load_
 from services.indicators import prepare_symbol_features
 from services.optimizer_engine import HARD_REJECT_SCORE as OPTIMIZER_HARD_REJECT_SCORE, OptimizerEngine
 from services.paper_engine import PaperTradingManager, SessionRuntime, paper_manager
+from services.research_runner import AutoResearchRunner, get_research_presets, get_research_run_details, resolve_research_artifact
 from services.simulator import Position, PreparedMarket, SimulationHelpers, simulate_market
 from services.trade_service import _round_stop_price, _round_take_profit_price
 from services.walkforward_engine import WalkForwardEngine
@@ -304,6 +305,98 @@ def main() -> None:
     assert dummy_runtime.trades[-1]['exit_reason'] == 'end_of_test'
     assert dummy_runtime.finalized_at_end is True
     print('paper end-of-test liquidation regression: OK')
+
+
+    custom_spec_optimizer = OptimizerEngine(settings | {
+        'optimizer_param_specs': {
+            'risk_per_trade': {'lower': 0.002, 'upper': 0.002, 'step': 0.0005},
+            'trend_strength_min': {'lower': 0.001, 'upper': 0.0012, 'step': 0.0001},
+            'reversion_zscore_threshold': {'lower': 2.0, 'upper': 2.0, 'step': 0.1},
+            'volatility_score_min': {'lower': 0.2, 'upper': 0.21, 'step': 0.01},
+            'volatility_score_max': {'lower': 0.97, 'upper': 0.98, 'step': 0.01},
+            'volume_multiplier': {'lower': 1.1, 'upper': 1.1, 'step': 0.1},
+            'atr_stop_mult_trend': {'lower': 1.5, 'upper': 1.5, 'step': 0.1},
+            'atr_stop_mult_reversion': {'lower': 1.4, 'upper': 1.4, 'step': 0.1},
+        }
+    })
+    baseline_custom = custom_spec_optimizer._baseline_params()
+    assert abs(float(baseline_custom['risk_per_trade']) - 0.002) < 1e-12
+    assert float(custom_spec_optimizer.param_specs[0].lower) == 0.002
+    print('optimizer param-spec override regression: OK')
+
+    quick_plan = {
+        'name': 'self_check_research',
+        'label': 'Self-check research',
+        'stages': [
+            {
+                'name': 'quick_stage_1',
+                'mode': 'reversion_only',
+                'trials': 3,
+                'optimizer': {
+                    'optimizer_train_bars': 1200,
+                    'optimizer_test_bars': 240,
+                    'optimizer_step_bars': 240,
+                    'optimizer_max_segments': 2,
+                    'optimizer_min_trades_test': 1,
+                },
+                'fixed_overrides': {
+                    'regime_filter_enabled': True,
+                    'volatility_filter_enabled': True,
+                    'no_trade_filter_enabled': True,
+                    'risk_per_trade': 0.002,
+                    'atr_stop_mult_trend': 1.5,
+                },
+                'param_specs': {
+                    'risk_per_trade': {'lower': 0.002, 'upper': 0.002, 'step': 0.0005},
+                    'trend_strength_min': {'lower': 0.0008, 'upper': 0.0012, 'step': 0.0001},
+                    'reversion_zscore_threshold': {'lower': 1.9, 'upper': 2.1, 'step': 0.1},
+                    'volatility_score_min': {'lower': 0.2, 'upper': 0.22, 'step': 0.01},
+                    'volatility_score_max': {'lower': 0.95, 'upper': 0.97, 'step': 0.01},
+                    'volume_multiplier': {'lower': 1.0, 'upper': 1.2, 'step': 0.1},
+                    'atr_stop_mult_trend': {'lower': 1.5, 'upper': 1.5, 'step': 0.1},
+                    'atr_stop_mult_reversion': {'lower': 1.3, 'upper': 1.4, 'step': 0.1},
+                },
+            },
+            {
+                'name': 'quick_stage_2',
+                'mode': 'reversion_only',
+                'trials': 4,
+                'optimizer': {
+                    'optimizer_train_bars': 1200,
+                    'optimizer_test_bars': 240,
+                    'optimizer_step_bars': 240,
+                    'optimizer_max_segments': 2,
+                    'optimizer_min_trades_test': 1,
+                },
+                'fixed_overrides': {
+                    'regime_filter_enabled': True,
+                    'volatility_filter_enabled': True,
+                    'no_trade_filter_enabled': True,
+                    'risk_per_trade': 0.002,
+                    'atr_stop_mult_trend': 1.5,
+                },
+                'fallback_param_specs': {
+                    'risk_per_trade': {'lower': 0.002, 'upper': 0.002, 'step': 0.0005},
+                    'trend_strength_min': {'lower': 0.0008, 'upper': 0.0012, 'step': 0.0001},
+                    'reversion_zscore_threshold': {'lower': 1.9, 'upper': 2.1, 'step': 0.1},
+                    'volatility_score_min': {'lower': 0.2, 'upper': 0.22, 'step': 0.01},
+                    'volatility_score_max': {'lower': 0.95, 'upper': 0.97, 'step': 0.01},
+                    'volume_multiplier': {'lower': 1.0, 'upper': 1.2, 'step': 0.1},
+                    'atr_stop_mult_trend': {'lower': 1.5, 'upper': 1.5, 'step': 0.1},
+                    'atr_stop_mult_reversion': {'lower': 1.3, 'upper': 1.4, 'step': 0.1},
+                },
+                'narrow_from_previous': {'top_n': 3, 'prefer_profitable': False, 'margin_steps': 1},
+            },
+        ],
+    }
+    research_manifest = AutoResearchRunner(settings).run(symbols=['SOLUSDT'], plan=quick_plan, plan_name='self_check_research', note='self-check')
+    assert research_manifest['research_run_id'].startswith('research_')
+    assert len(research_manifest['stages']) == 2
+    assert resolve_research_artifact(research_manifest['research_run_id'], 'report.md').exists()
+    loaded_manifest = get_research_run_details(research_manifest['research_run_id'])
+    assert loaded_manifest['research_run_id'] == research_manifest['research_run_id']
+    assert any(preset['name'] == 'reversion_60d_auto' for preset in get_research_presets())
+    print('auto research runner regression: OK')
 
     print('ALL CHECKS PASSED')
 

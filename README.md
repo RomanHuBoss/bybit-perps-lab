@@ -219,3 +219,36 @@ curl -X POST http://127.0.0.1:8010/api/tiny-live/execute \
 - optimizer objective now heavily penalizes cosmetically good but still losing configurations (negative return / PF<1 / avg R<=0)
 - optimizer and walk-forward now reject overlapping out-of-sample windows where step_bars < test_bars
 - optimizer CSV export filenames now include run id and actual trial count to avoid confusion with run numbers
+
+
+## Auto research
+
+The project now includes an automated multi-stage optimizer runner so you no longer need to manually toggle trend/reversion modes and re-enter optimizer windows for each cycle.
+
+### UI
+- Use the **Автоисследование** panel in the sidebar.
+- Pick a preset, optionally add a note, and click **Запустить автоисследование**.
+- The runner uses the symbol selected in the optimizer block.
+- Artifacts are saved under `instance/research_runs/<research_run_id>/`.
+
+### CLI
+```bash
+python scripts/auto_research.py --symbol SOLUSDT --preset reversion_60d_auto
+```
+
+Built-in presets:
+- `reversion_60d_auto`
+- `trend_60d_auto`
+- `dual_60d_auto`
+
+You can also pass your own JSON plan:
+```bash
+python scripts/auto_research.py --symbol SOLUSDT --plan research_plans/reversion_60d_auto.json
+```
+
+Artifacts generated per run:
+- `manifest.json`
+- `report.md`
+- `combined_best_configs.csv`
+- per-stage `*_trials.csv`
+- per-stage `*_summary.json`

@@ -1,0 +1,66 @@
+{
+  "name": "reversion_60d_auto",
+  "label": "Reversion-only / 60d / 2-stage",
+  "description": "Автоматический двухэтапный поиск для 60 дней 5m истории с hard min-trades фильтром.",
+  "stages": [
+    {
+      "name": "reversion_stage1",
+      "mode": "reversion_only",
+      "trials": 90,
+      "optimizer": {
+        "optimizer_train_bars": 9000,
+        "optimizer_test_bars": 1008,
+        "optimizer_step_bars": 1008,
+        "optimizer_max_segments": 8,
+        "optimizer_min_trades_test": 24
+      },
+      "fixed_overrides": {
+        "regime_filter_enabled": true,
+        "volatility_filter_enabled": true,
+        "no_trade_filter_enabled": true,
+        "risk_per_trade": 0.002,
+        "atr_stop_mult_trend": 1.5
+      },
+      "param_specs": {
+        "risk_per_trade": {"lower": 0.002, "upper": 0.002, "step": 0.0005},
+        "trend_strength_min": {"lower": 0.0008, "upper": 0.0016, "step": 0.0001},
+        "reversion_zscore_threshold": {"lower": 1.9, "upper": 2.2, "step": 0.1},
+        "volatility_score_min": {"lower": 0.2, "upper": 0.25, "step": 0.01},
+        "volatility_score_max": {"lower": 0.95, "upper": 0.98, "step": 0.01},
+        "volume_multiplier": {"lower": 1.0, "upper": 1.4, "step": 0.1},
+        "atr_stop_mult_trend": {"lower": 1.5, "upper": 1.5, "step": 0.1},
+        "atr_stop_mult_reversion": {"lower": 1.3, "upper": 1.5, "step": 0.1}
+      }
+    },
+    {
+      "name": "reversion_stage2",
+      "mode": "reversion_only",
+      "trials": 180,
+      "optimizer": {
+        "optimizer_train_bars": 9000,
+        "optimizer_test_bars": 1008,
+        "optimizer_step_bars": 1008,
+        "optimizer_max_segments": 8,
+        "optimizer_min_trades_test": 24
+      },
+      "fixed_overrides": {
+        "regime_filter_enabled": true,
+        "volatility_filter_enabled": true,
+        "no_trade_filter_enabled": true,
+        "risk_per_trade": 0.002,
+        "atr_stop_mult_trend": 1.5
+      },
+      "fallback_param_specs": {
+        "risk_per_trade": {"lower": 0.002, "upper": 0.002, "step": 0.0005},
+        "trend_strength_min": {"lower": 0.0008, "upper": 0.0012, "step": 0.0001},
+        "reversion_zscore_threshold": {"lower": 1.95, "upper": 2.05, "step": 0.1},
+        "volatility_score_min": {"lower": 0.24, "upper": 0.26, "step": 0.01},
+        "volatility_score_max": {"lower": 0.96, "upper": 0.98, "step": 0.01},
+        "volume_multiplier": {"lower": 1.2, "upper": 1.4, "step": 0.1},
+        "atr_stop_mult_trend": {"lower": 1.5, "upper": 1.5, "step": 0.1},
+        "atr_stop_mult_reversion": {"lower": 1.35, "upper": 1.45, "step": 0.1}
+      },
+      "narrow_from_previous": {"top_n": 8, "prefer_profitable": true, "margin_steps": 1}
+    }
+  ]
+}

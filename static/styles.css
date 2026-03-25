@@ -32,7 +32,7 @@ button {
 }
 button:hover { transform: translateY(-1px); border-color: rgba(108,164,255,0.55); }
 button.primary { background: linear-gradient(135deg, #2a6af0, #6ca4ff); color: white; border: none; }
-input[type="text"], input[type="number"], input:not([type]), input[type="file"] {
+input[type="text"], input[type="number"], input:not([type]), input[type="file"], select {
   width: 100%;
   margin-top: 6px;
   min-height: 38px;
@@ -463,3 +463,5 @@ button.danger:hover {
 
 
 .single-actions { justify-content: flex-end; }
+
+.research-box { min-height: 96px; }
