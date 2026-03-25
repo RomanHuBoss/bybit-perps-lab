@@ -278,14 +278,66 @@ class PaperTradingManager:
             bar = bar_df.loc[ts]
             pos.bars_held += 1
 
+            open_price = float(bar['open'])
+            high_price = float(bar['high'])
+            low_price = float(bar['low'])
+
+            if SimulationHelpers.stop_triggered(open_price, pos.stop_price, pos.side):
+                raw_exit = SimulationHelpers.stop_reference_price(open_price, pos.stop_price, pos.side)
+                fill_price = SimulationHelpers.apply_slippage(raw_exit, pos.side, stop_exit_slippage_bps, is_entry=False)
+                cash_delta = SimulationHelpers.incremental_close_cash(pos, fill_price, stop_exit_fee_rate)
+                trade = SimulationHelpers.close_position(pos, ts, fill_price, 'stop', stop_exit_fee_rate)
+                runtime.trades.append(trade)
+                runtime.equity_cash += cash_delta
+                runtime.daily_realized[day] += cash_delta
+                runtime.daily_stopouts[day] += 1
+                runtime.symbol_cooldowns[symbol] = ts + pd.Timedelta(minutes=5 * cooldown_bars_after_stop)
+                runtime.consecutive_losses = runtime.consecutive_losses + 1 if trade['net_pnl'] <= 0 else 0
+                if runtime.daily_stopouts[day] >= max_daily_stopouts or runtime.consecutive_losses >= max_consecutive_losses:
+                    runtime.disabled_days.add(day)
+                runtime.positions.pop(symbol, None)
+                continue
+
+            if not pos.tp1_taken and SimulationHelpers.take_profit_triggered(open_price, pos.tp2_price, pos.side):
+                raw_exit = SimulationHelpers.take_profit_reference_price(open_price, pos.tp2_price, pos.side)
+                fill_price = SimulationHelpers.apply_slippage(raw_exit, pos.side, tp_exit_slippage_bps, is_entry=False)
+                cash_delta = SimulationHelpers.incremental_close_cash(pos, fill_price, tp_exit_fee_rate)
+                trade = SimulationHelpers.close_position(pos, ts, fill_price, 'tp2', tp_exit_fee_rate)
+                runtime.trades.append(trade)
+                runtime.equity_cash += cash_delta
+                runtime.daily_realized[day] += cash_delta
+                runtime.consecutive_losses = 0 if trade['net_pnl'] > 0 else runtime.consecutive_losses + 1
+                runtime.positions.pop(symbol, None)
+                continue
+
+            if not pos.tp1_taken and SimulationHelpers.take_profit_triggered(open_price, pos.tp1_price, pos.side):
+                raw_tp1 = SimulationHelpers.take_profit_reference_price(open_price, pos.tp1_price, pos.side)
+                fill = SimulationHelpers.apply_slippage(raw_tp1, pos.side, tp_exit_slippage_bps, is_entry=False)
+                cash_delta = SimulationHelpers.partial_close_cash(pos, fill, pos.qty * 0.5, tp_exit_fee_rate)
+                pos.tp1_taken = True
+                pos.stop_price = pos.entry_price
+                runtime.equity_cash += cash_delta
+                runtime.daily_realized[day] += cash_delta
+            elif pos.tp1_taken and SimulationHelpers.take_profit_triggered(open_price, pos.tp2_price, pos.side):
+                raw_exit = SimulationHelpers.take_profit_reference_price(open_price, pos.tp2_price, pos.side)
+                fill_price = SimulationHelpers.apply_slippage(raw_exit, pos.side, tp_exit_slippage_bps, is_entry=False)
+                cash_delta = SimulationHelpers.incremental_close_cash(pos, fill_price, tp_exit_fee_rate)
+                trade = SimulationHelpers.close_position(pos, ts, fill_price, 'tp2', tp_exit_fee_rate)
+                runtime.trades.append(trade)
+                runtime.equity_cash += cash_delta
+                runtime.daily_realized[day] += cash_delta
+                runtime.consecutive_losses = 0 if trade['net_pnl'] > 0 else runtime.consecutive_losses + 1
+                runtime.positions.pop(symbol, None)
+                continue
+
             if pos.side == 'LONG':
-                stop_hit = bar['low'] <= pos.stop_price
-                tp1_hit = (not pos.tp1_taken) and bar['high'] >= pos.tp1_price
-                tp2_hit = pos.tp1_taken and bar['high'] >= pos.tp2_price
+                stop_hit = low_price <= pos.stop_price
+                tp1_hit = (not pos.tp1_taken) and high_price >= pos.tp1_price
+                tp2_hit = pos.tp1_taken and high_price >= pos.tp2_price
             else:
-                stop_hit = bar['high'] >= pos.stop_price
-                tp1_hit = (not pos.tp1_taken) and bar['low'] <= pos.tp1_price
-                tp2_hit = pos.tp1_taken and bar['low'] <= pos.tp2_price
+                stop_hit = high_price >= pos.stop_price
+                tp1_hit = (not pos.tp1_taken) and low_price <= pos.tp1_price
+                tp2_hit = pos.tp1_taken and low_price <= pos.tp2_price
 
             if stop_hit:
                 fill_price = SimulationHelpers.apply_slippage(pos.stop_price, pos.side, stop_exit_slippage_bps, is_entry=False)
@@ -303,17 +355,33 @@ class PaperTradingManager:
                 continue
 
             if tp1_hit:
-                close_qty = pos.qty * 0.5
                 fill = SimulationHelpers.apply_slippage(pos.tp1_price, pos.side, tp_exit_slippage_bps, is_entry=False)
-                pnl = SimulationHelpers.leg_pnl(pos, fill, close_qty)
-                fee = close_qty * fill * tp_exit_fee_rate
-                pos.qty -= close_qty
-                pos.realized_gross += pnl
-                pos.fees += fee
+                cash_delta = SimulationHelpers.partial_close_cash(pos, fill, pos.qty * 0.5, tp_exit_fee_rate)
                 pos.tp1_taken = True
                 pos.stop_price = pos.entry_price
-                runtime.equity_cash += pnl - fee
-                runtime.daily_realized[day] += pnl - fee
+                runtime.equity_cash += cash_delta
+                runtime.daily_realized[day] += cash_delta
+                if pos.side == 'LONG':
+                    stop_hit = low_price <= pos.stop_price
+                    tp2_hit = high_price >= pos.tp2_price
+                else:
+                    stop_hit = high_price >= pos.stop_price
+                    tp2_hit = low_price <= pos.tp2_price
+
+            if stop_hit:
+                fill_price = SimulationHelpers.apply_slippage(pos.stop_price, pos.side, stop_exit_slippage_bps, is_entry=False)
+                cash_delta = SimulationHelpers.incremental_close_cash(pos, fill_price, stop_exit_fee_rate)
+                trade = SimulationHelpers.close_position(pos, ts, fill_price, 'stop', stop_exit_fee_rate)
+                runtime.trades.append(trade)
+                runtime.equity_cash += cash_delta
+                runtime.daily_realized[day] += cash_delta
+                runtime.daily_stopouts[day] += 1
+                runtime.symbol_cooldowns[symbol] = ts + pd.Timedelta(minutes=5 * cooldown_bars_after_stop)
+                runtime.consecutive_losses = runtime.consecutive_losses + 1 if trade['net_pnl'] <= 0 else 0
+                if runtime.daily_stopouts[day] >= max_daily_stopouts or runtime.consecutive_losses >= max_consecutive_losses:
+                    runtime.disabled_days.add(day)
+                runtime.positions.pop(symbol, None)
+                continue
 
             if tp2_hit:
                 fill_price = SimulationHelpers.apply_slippage(pos.tp2_price, pos.side, tp_exit_slippage_bps, is_entry=False)

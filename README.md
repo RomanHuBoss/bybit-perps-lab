@@ -208,3 +208,10 @@ curl -X POST http://127.0.0.1:8010/api/tiny-live/execute \
 - reduced paper payload size via downsampled equity and limited rows
 - threaded Flask launch for smoother local UX
 - added SQLite indexes for faster reads
+
+## v4.2 research patch
+
+- fixed breakout volume confirmation to compare 5m bar volume against 5m average, instead of mixing 5m and 15m units
+- fixed stop execution on gap-through bars: backtest/paper now close at realistic open-or-worse reference price instead of stale stop level
+- fixed same-bar TP ladder handling: TP1 and TP2 can both complete within one bar when the range clearly reaches both levels
+- self-check extended with regressions for gap stops, same-bar TP ladder, and timeframe-consistent volume filter

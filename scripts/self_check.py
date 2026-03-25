@@ -11,6 +11,8 @@ if str(ROOT) not in sys.path:
 
 from app import app
 from database import ensure_database, get_settings
+from services import simulator as simulator_module
+from services import strategy_engine as strategy_module
 from services.backtest_engine import BacktestEngine
 from services.data_service import generate_demo_market_data, load_candles, load_funding
 from services.indicators import prepare_symbol_features
@@ -81,6 +83,98 @@ def main() -> None:
     assert _round_stop_price(Decimal('100.004'), Decimal('0.01'), 'SHORT', Decimal('100.00')) == Decimal('100.01')
     assert _round_take_profit_price(Decimal('99.996'), Decimal('0.01'), 'SHORT', Decimal('100.00')) == Decimal('99.99')
     print('directional tick rounding regression: OK')
+
+    original_prepare_symbol_features = strategy_module.prepare_symbol_features
+    try:
+        strategy_module.prepare_symbol_features = lambda _df: pd.DataFrame([
+            {
+                'ts': pd.Timestamp('2026-01-01T00:00:00Z'),
+                'symbol': 'BTCUSDT',
+                'open': 100.0,
+                'high': 102.0,
+                'low': 99.0,
+                'close': 101.0,
+                'volume': 150.0,
+                'vol_sma_20': 100.0,
+                'atr_14': 1.5,
+                'h4_ema_50': 110.0,
+                'h4_ema_200': 100.0,
+                'h1_close': 101.0,
+                'h1_ema_20': 100.0,
+                'h1_ema_50': 99.0,
+                'm15_break_high_8': 100.0,
+                'm15_break_low_8': 98.0,
+                'm15_vol_sma_20': 400.0,
+                'trend_strength': 0.01,
+                'volatility_score': 0.5,
+                'dev_zscore': 0.0,
+                'trend_alignment': 1,
+                'rolling_low_20': 95.0,
+                'rolling_high_20': 105.0,
+                'vwap_48': 100.0,
+            }
+        ])
+        _, signals = strategy_module.StrategyFactory(settings).build_symbol_signals(pd.DataFrame([{'symbol': 'BTCUSDT'}]))
+        assert signals and signals[0].side == 'LONG'
+    finally:
+        strategy_module.prepare_symbol_features = original_prepare_symbol_features
+    print('volume timeframe consistency regression: OK')
+
+    scenario_settings = {
+        'starting_equity': 10000.0,
+        'risk_per_trade': 0.01,
+        'max_concurrent_positions': 1,
+        'max_same_side_positions': 1,
+        'daily_loss_limit': 1.0,
+        'max_daily_stopouts': 10,
+        'cooldown_bars_after_stop': 0,
+        'max_consecutive_losses': 10,
+        'max_leverage': 100.0,
+        'entry_fee_rate': 0.0,
+        'exit_fee_rate_take_profit': 0.0,
+        'exit_fee_rate_stop': 0.0,
+        'entry_slippage_bps': 0.0,
+        'exit_slippage_bps_tp': 0.0,
+        'exit_slippage_bps_stop': 0.0,
+    }
+
+    def _run_custom_simulation(bar_rows):
+        signal = strategy_module.StrategySignal(
+            ts=bar_rows[0]['ts'], symbol='BTCUSDT', regime='trend', side='LONG', score=0.9,
+            entry_price=100.0, stop_price=90.0, tp1_price=110.0, tp2_price=120.0,
+            stop_distance=10.0, tp1_r_multiple=1.0, tp2_r_multiple=2.0, notes='scenario'
+        )
+        prepared = PreparedMarket(
+            symbol_bars={'BTCUSDT': pd.DataFrame(bar_rows)},
+            signals_by_symbol={'BTCUSDT': {bar_rows[0]['ts']: signal}},
+            signal_rows=[],
+            funding_maps={},
+            all_times=[row['ts'] for row in bar_rows],
+        )
+        original_prepare_market = simulator_module.prepare_market
+        try:
+            simulator_module.prepare_market = lambda _settings, _candles, _funding, _symbols: prepared
+            return simulator_module.simulate_market(scenario_settings, pd.DataFrame({'dummy': [1]}), pd.DataFrame(), ['BTCUSDT'])
+        finally:
+            simulator_module.prepare_market = original_prepare_market
+
+    gap_stop_result = _run_custom_simulation([
+        {'ts': pd.Timestamp('2026-01-01T00:00:00Z'), 'symbol': 'BTCUSDT', 'open': 100.0, 'high': 101.0, 'low': 99.0, 'close': 100.0, 'volume': 1.0},
+        {'ts': pd.Timestamp('2026-01-01T00:05:00Z'), 'symbol': 'BTCUSDT', 'open': 105.0, 'high': 106.0, 'low': 104.0, 'close': 105.0, 'volume': 1.0},
+        {'ts': pd.Timestamp('2026-01-01T00:10:00Z'), 'symbol': 'BTCUSDT', 'open': 80.0, 'high': 81.0, 'low': 79.0, 'close': 80.0, 'volume': 1.0},
+    ])
+    assert gap_stop_result['trades'][0]['exit_reason'] == 'stop'
+    assert abs(float(gap_stop_result['trades'][0]['exit_price']) - 80.0) < 1e-9
+    print('gap-through-stop regression: OK')
+
+    tp_ladder_result = _run_custom_simulation([
+        {'ts': pd.Timestamp('2026-01-01T00:00:00Z'), 'symbol': 'BTCUSDT', 'open': 100.0, 'high': 101.0, 'low': 99.0, 'close': 100.0, 'volume': 1.0},
+        {'ts': pd.Timestamp('2026-01-01T00:05:00Z'), 'symbol': 'BTCUSDT', 'open': 105.0, 'high': 106.0, 'low': 104.0, 'close': 105.0, 'volume': 1.0},
+        {'ts': pd.Timestamp('2026-01-01T00:10:00Z'), 'symbol': 'BTCUSDT', 'open': 116.0, 'high': 126.0, 'low': 112.0, 'close': 113.0, 'volume': 1.0},
+    ])
+    assert tp_ladder_result['trades'][0]['exit_reason'] == 'tp2'
+    assert abs(float(tp_ladder_result['trades'][0]['gross_pnl']) - 155.0) < 1e-9
+    print('same-bar tp ladder regression: OK')
 
     ts = pd.Timestamp('2026-01-01T00:00:00Z')
     dummy_bars = pd.DataFrame([{'ts': ts, 'symbol': 'BTCUSDT', 'open': 100.0, 'high': 100.0, 'low': 100.0, 'close': 100.0, 'volume': 1.0}])

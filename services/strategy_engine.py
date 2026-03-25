@@ -68,7 +68,7 @@ class StrategyFactory:
 
         for row in features.itertuples(index=False):
             required_cols = [
-                'atr_14', 'h4_ema_50', 'h4_ema_200', 'h1_ema_20', 'h1_ema_50', 'm15_break_high_8', 'm15_break_low_8',
+                'atr_14', 'vol_sma_20', 'h4_ema_50', 'h4_ema_200', 'h1_ema_20', 'h1_ema_50', 'm15_break_high_8', 'm15_break_low_8',
                 'trend_strength', 'volatility_score', 'dev_zscore',
             ]
             if any(pd.isna(getattr(row, col)) for col in required_cols):
@@ -104,28 +104,31 @@ class StrategyFactory:
             ]
             trend_score = 0.0
             trend_side = None
+            # Compare volume on the same 5m timeframe. Using a 5m bar against a 15m SMA
+            # suppresses valid breakout signals by mixing incompatible units.
+            volume_ratio_5m = row.volume / max(row.vol_sma_20, 1e-9)
 
             if bool(self.settings.get('trend_enabled', True)):
                 if regime_filter_enabled and market_regime != 'trend':
                     pass
-                elif row.h4_ema_50 > row.h4_ema_200 and row.h1_close >= row.h1_ema_20 and close > row.m15_break_high_8 and row.volume > row.m15_vol_sma_20 * volume_multiplier and funding <= funding_cap:
+                elif row.h4_ema_50 > row.h4_ema_200 and row.h1_close >= row.h1_ema_20 and close > row.m15_break_high_8 and volume_ratio_5m > volume_multiplier and funding <= funding_cap:
                     trend_score = self._bounded_score(
                         0.45
                         + self._scale_positive((row.h4_ema_50 - row.h4_ema_200) / max(close, 1e-9), 0.0, 0.03) * 0.16
                         + self._scale_positive((close - row.m15_break_high_8) / max(close, 1e-9), 0.0, 0.01) * 0.16
-                        + self._scale_positive(row.volume / max(row.m15_vol_sma_20, 1e-9) - 1.0, 0.0, 1.4) * 0.1
+                        + self._scale_positive(volume_ratio_5m - 1.0, 0.0, 1.4) * 0.1
                         + self._scale_positive(trend_strength, trend_strength_min * 0.7, trend_strength_min * 3.0) * 0.13
                         + self._scale_positive(volatility_score, volatility_score_min, volatility_score_max) * 0.1
                         + self._scale_positive(-funding, -funding_cap, funding_cap) * 0.1
                     )
                     trend_side = 'LONG'
                     notes.append('trend-long breakout')
-                elif row.h4_ema_50 < row.h4_ema_200 and row.h1_close <= row.h1_ema_20 and close < row.m15_break_low_8 and row.volume > row.m15_vol_sma_20 * volume_multiplier and funding >= -funding_cap:
+                elif row.h4_ema_50 < row.h4_ema_200 and row.h1_close <= row.h1_ema_20 and close < row.m15_break_low_8 and volume_ratio_5m > volume_multiplier and funding >= -funding_cap:
                     trend_score = self._bounded_score(
                         0.45
                         + self._scale_positive((row.h4_ema_200 - row.h4_ema_50) / max(close, 1e-9), 0.0, 0.03) * 0.16
                         + self._scale_positive((row.m15_break_low_8 - close) / max(close, 1e-9), 0.0, 0.01) * 0.16
-                        + self._scale_positive(row.volume / max(row.m15_vol_sma_20, 1e-9) - 1.0, 0.0, 1.4) * 0.1
+                        + self._scale_positive(volume_ratio_5m - 1.0, 0.0, 1.4) * 0.1
                         + self._scale_positive(trend_strength, trend_strength_min * 0.7, trend_strength_min * 3.0) * 0.13
                         + self._scale_positive(volatility_score, volatility_score_min, volatility_score_max) * 0.1
                         + self._scale_positive(funding, -funding_cap, funding_cap) * 0.1
