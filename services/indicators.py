@@ -92,10 +92,17 @@ def prepare_symbol_features(symbol_df: pd.DataFrame) -> pd.DataFrame:
     h4['ema_50'] = ema(h4['close'], 50)
     h4['ema_200'] = ema(h4['close'], 200)
 
+    # Use only fully closed higher-timeframe bars. Without this shift, a 5m bar can
+    # see aggregated values from the still-forming 15m/1h/4h candle, which creates
+    # look-ahead bias in backtests and live signal previews.
+    f15_closed = f15[['break_high_8', 'break_low_8', 'vol_sma_20']].shift(1)
+    h1_closed = h1[['close', 'ema_20', 'ema_50', 'atr_14', 'atr_pct']].shift(1)
+    h4_closed = h4[['close', 'ema_50', 'ema_200']].shift(1)
+
     combined = base.copy()
-    combined = combined.join(align_feature(f15[['break_high_8', 'break_low_8', 'vol_sma_20']], combined.index, 'm15'))
-    combined = combined.join(align_feature(h1[['close', 'ema_20', 'ema_50', 'atr_14', 'atr_pct']], combined.index, 'h1'))
-    combined = combined.join(align_feature(h4[['close', 'ema_50', 'ema_200']], combined.index, 'h4'))
+    combined = combined.join(align_feature(f15_closed, combined.index, 'm15'))
+    combined = combined.join(align_feature(h1_closed, combined.index, 'h1'))
+    combined = combined.join(align_feature(h4_closed, combined.index, 'h4'))
 
     combined['trend_strength'] = (
         ((combined['h4_ema_50'] - combined['h4_ema_200']).abs() / combined['close'].replace(0, np.nan)) * 0.65

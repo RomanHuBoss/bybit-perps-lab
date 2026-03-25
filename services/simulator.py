@@ -76,13 +76,24 @@ class SimulationHelpers:
         return stop_price, tp1_price, tp2_price
 
     @staticmethod
+    def position_reference_price(pos: Position, bar_maps: dict[str, pd.DataFrame], ts: pd.Timestamp) -> float:
+        bar_df = bar_maps.get(pos.symbol)
+        if bar_df is not None and ts in bar_df.index:
+            return float(bar_df.loc[ts]['close'])
+        return float(pos.entry_price)
+
+    @staticmethod
+    def total_open_notional(positions: dict[str, Position], bar_maps: dict[str, pd.DataFrame], ts: pd.Timestamp) -> float:
+        total = 0.0
+        for pos in positions.values():
+            total += abs(pos.qty) * SimulationHelpers.position_reference_price(pos, bar_maps, ts)
+        return float(total)
+
+    @staticmethod
     def marked_equity(cash_equity: float, positions: dict[str, Position], bar_maps: dict[str, pd.DataFrame], ts: pd.Timestamp) -> float:
         open_mark_to_market = 0.0
-        for symbol, pos in positions.items():
-            bar_df = bar_maps.get(symbol)
-            if bar_df is None or ts not in bar_df.index:
-                continue
-            current_close = float(bar_df.loc[ts]['close'])
+        for pos in positions.values():
+            current_close = SimulationHelpers.position_reference_price(pos, bar_maps, ts)
             open_mark_to_market += SimulationHelpers.leg_pnl(pos, current_close, pos.qty)
         return float(cash_equity + open_mark_to_market)
 
@@ -411,9 +422,13 @@ def simulate_market(
             if risk_per_unit <= 0:
                 continue
             qty = risk_capital / risk_per_unit
-            max_notional = marked_equity_for_sizing * max_leverage
-            if qty * next_entry > max_notional:
-                qty = max_notional / max(next_entry, 1e-9)
+            open_notional = SimulationHelpers.total_open_notional(positions, bar_maps, ts)
+            max_total_notional = marked_equity_for_sizing * max_leverage
+            available_notional = max(max_total_notional - open_notional, 0.0)
+            if available_notional <= 0:
+                continue
+            if qty * next_entry > available_notional:
+                qty = available_notional / max(next_entry, 1e-9)
             if qty <= 0:
                 continue
 

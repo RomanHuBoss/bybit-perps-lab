@@ -92,7 +92,7 @@ class TradePlanner:
             raise ValueError(f'{symbol}: сигнал не свежий. {signal_view["note"]}')
 
         signal = signal_view['signal']
-        market = self._get_market_snapshot(symbol)
+        market = self._get_market_snapshot(symbol, signal_side=signal['side'])
         entry_price = Decimal(str(market['entry_price']))
         instrument = market['instrument']
         tick = Decimal(str(instrument['tickSize']))
@@ -169,7 +169,7 @@ class TradePlanner:
             'adapter_response': response_payload,
         }
 
-    def _get_market_snapshot(self, symbol: str) -> dict[str, Any]:
+    def _get_market_snapshot(self, symbol: str, signal_side: str | None = None) -> dict[str, Any]:
         ticker = None
         instrument = None
         source = 'bybit-public'
@@ -182,10 +182,18 @@ class TradePlanner:
                 'minOrderQty': info['lotSizeFilter']['minOrderQty'],
                 'minNotionalValue': info['lotSizeFilter']['minNotionalValue'],
             }
-            entry_price = float(ticker.get('ask1Price') or ticker.get('lastPrice') or ticker.get('markPrice'))
+            preferred_field = 'ask1Price' if signal_side != 'SHORT' else 'bid1Price'
+            entry_price = float(
+                ticker.get(preferred_field)
+                or ticker.get('lastPrice')
+                or ticker.get('markPrice')
+                or ticker.get('ask1Price')
+                or ticker.get('bid1Price')
+            )
             return {
                 'source': source,
                 'entry_price': entry_price,
+                'entry_price_field': preferred_field,
                 'ticker': ticker,
                 'instrument': instrument,
             }
@@ -198,6 +206,7 @@ class TradePlanner:
             return {
                 'source': 'local-fallback',
                 'entry_price': last_close,
+                'entry_price_field': 'last_close',
                 'ticker': {'symbol': symbol, 'lastPrice': str(last_close)},
                 'instrument': fallback,
             }

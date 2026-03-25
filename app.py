@@ -26,6 +26,59 @@ from services.trade_service import TradePlanner
 from services.walkforward_engine import WalkForwardEngine, get_walkforward_details, list_walkforward_runs
 
 
+def _as_bool(value, *, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in {'1', 'true', 'yes', 'y', 'on'}:
+        return True
+    if text in {'0', 'false', 'no', 'n', 'off', ''}:
+        return False
+    raise ValueError(f'Invalid boolean value: {value}')
+
+
+def _as_int(value) -> int:
+    if value is None or value == '':
+        raise ValueError('Expected integer value.')
+    if isinstance(value, bool):
+        raise ValueError('Boolean is not a valid integer value.')
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if not value.is_integer():
+            raise ValueError(f'Invalid integer value: {value}')
+        return int(value)
+    text = str(value).strip().replace(',', '.')
+    parsed = float(text)
+    if not parsed.is_integer():
+        raise ValueError(f'Invalid integer value: {value}')
+    return int(parsed)
+
+
+def _as_float(value) -> float:
+    if value is None or value == '':
+        raise ValueError('Expected numeric value.')
+    if isinstance(value, bool):
+        raise ValueError('Boolean is not a valid numeric value.')
+    if isinstance(value, (int, float)):
+        return float(value)
+    return float(str(value).strip().replace(',', '.'))
+
+
+def _coerce_setting_value(value, default):
+    if isinstance(default, bool):
+        return _as_bool(value, default=default)
+    if isinstance(default, int) and not isinstance(default, bool):
+        return _as_int(value)
+    if isinstance(default, float):
+        return _as_float(value)
+    return value
+
+
 def create_app() -> Flask:
     app = Flask(__name__)
     app.config.update(APP_CONFIG)
@@ -57,17 +110,9 @@ def create_app() -> Flask:
         payload = request.get_json(force=True, silent=False) or {}
         merged = get_settings()
         for key, default in DEFAULT_SETTINGS.items():
-            if key not in payload:
+            if key not in payload or payload[key] is None:
                 continue
-            value = payload[key]
-            if isinstance(default, bool):
-                merged[key] = bool(value)
-            elif isinstance(default, int) and not isinstance(default, bool):
-                merged[key] = int(value)
-            elif isinstance(default, float):
-                merged[key] = float(value)
-            else:
-                merged[key] = value
+            merged[key] = _coerce_setting_value(payload[key], default)
         saved = update_settings(merged)
         return jsonify(saved)
 
@@ -77,7 +122,7 @@ def create_app() -> Flask:
 
     @app.get('/api/symbol-catalog')
     def api_symbol_catalog():
-        force_refresh = request.args.get('refresh', '0') in {'1', 'true', 'yes'}
+        force_refresh = _as_bool(request.args.get('refresh', '0'))
         limit = int(request.args.get('limit', 120))
         catalog = fetch_bybit_linear_usdt_symbol_catalog(limit=limit, force_refresh=force_refresh)
         catalog['local_symbols'] = list_symbols(interval=request.args.get('interval', '5'))
@@ -89,7 +134,7 @@ def create_app() -> Flask:
         symbols = payload.get('symbols') or get_settings().get('demo_symbols', DEFAULT_SETTINGS['demo_symbols'])
         days = int(payload.get('days', 20))
         interval = str(payload.get('interval', '5'))
-        if payload.get('async'):
+        if _as_bool(payload.get('async'), default=False):
             job = job_manager.submit(
                 'load-demo-data',
                 lambda: generate_demo_market_data(symbols=symbols, interval=interval, days=days),
@@ -104,7 +149,7 @@ def create_app() -> Flask:
         symbols = payload.get('symbols') or ['BTCUSDT', 'ETHUSDT']
         interval = str(payload.get('interval', '5'))
         days = int(payload.get('days', 14))
-        if payload.get('async'):
+        if _as_bool(payload.get('async'), default=False):
             job = job_manager.submit(
                 'sync-bybit-public',
                 lambda: sync_bybit_public(symbols=symbols, interval=interval, days=days),
@@ -131,7 +176,7 @@ def create_app() -> Flask:
         symbols = payload.get('symbols') or list_symbols('5')
         settings = get_settings()
         settings.update(payload.get('overrides', {}))
-        if payload.get('async'):
+        if _as_bool(payload.get('async'), default=False):
             job = job_manager.submit(
                 'run-backtest',
                 lambda: BacktestEngine(settings).run(symbols=symbols),
@@ -161,7 +206,7 @@ def create_app() -> Flask:
         settings = get_settings()
         settings.update(payload.get('overrides', {}))
         trials = int(payload.get('trials', settings.get('optimizer_trials', 24)))
-        if payload.get('async'):
+        if _as_bool(payload.get('async'), default=False):
             job = job_manager.submit(
                 'run-optimizer',
                 lambda: OptimizerEngine(settings).run(symbols=symbols, trials=trials),
@@ -207,7 +252,7 @@ def create_app() -> Flask:
         symbols = payload.get('symbols') or list_symbols('5')
         settings = get_settings()
         settings.update(payload.get('overrides', {}))
-        if payload.get('async'):
+        if _as_bool(payload.get('async'), default=False):
             job = job_manager.submit(
                 'run-walkforward',
                 lambda: WalkForwardEngine(settings).run(symbols=symbols),
@@ -304,7 +349,7 @@ def create_app() -> Flask:
         symbols_raw = request.args.get('symbols', '')
         symbols = [s.strip().upper() for s in symbols_raw.split(',') if s.strip()] or list_symbols('5')
         fixed_notional_usdt = float(request.args.get('fixed_notional_usdt', get_settings().get('live_fixed_notional_usdt', 10.0)))
-        require_fresh_signal = request.args.get('require_fresh_signal', 'true').lower() != 'false'
+        require_fresh_signal = _as_bool(request.args.get('require_fresh_signal', 'true'), default=True)
         settings = get_settings()
         planner = TradePlanner(settings)
         rows = []
@@ -325,7 +370,7 @@ def create_app() -> Flask:
         settings = get_settings()
         planner = TradePlanner(settings)
         fixed_notional_usdt = payload.get('fixed_notional_usdt', settings.get('live_fixed_notional_usdt', 10.0))
-        require_fresh_signal = bool(payload.get('require_fresh_signal', True))
+        require_fresh_signal = _as_bool(payload.get('require_fresh_signal', True), default=True)
         return jsonify(planner.build_trade_plan(symbol=symbol, fixed_notional_usdt=fixed_notional_usdt, require_fresh_signal=require_fresh_signal))
 
     @app.post('/api/tiny-live/execute')
@@ -337,7 +382,7 @@ def create_app() -> Flask:
         settings = get_settings()
         planner = TradePlanner(settings)
         fixed_notional_usdt = payload.get('fixed_notional_usdt', settings.get('live_fixed_notional_usdt', 10.0))
-        require_fresh_signal = bool(payload.get('require_fresh_signal', True))
+        require_fresh_signal = _as_bool(payload.get('require_fresh_signal', True), default=True)
         plan = planner.build_trade_plan(symbol=symbol, fixed_notional_usdt=fixed_notional_usdt, require_fresh_signal=require_fresh_signal)
         if not plan.get('affordable_for_requested_size', False):
             raise ValueError(plan['affordability_note'])

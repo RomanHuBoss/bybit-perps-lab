@@ -20,6 +20,18 @@
 
   let lastPlan = null;
 
+  function parseNumber(raw, fallback = null) {
+    if (typeof window.parseLocaleNumber === 'function') {
+      return window.parseLocaleNumber(raw, { fallback });
+    }
+    if (raw === null || raw === undefined) return fallback;
+    const text = String(raw).trim();
+    if (!text) return fallback;
+    const value = Number(text.replace(',', '.'));
+    if (!Number.isFinite(value)) throw new Error(`Некорректное число: ${raw}`);
+    return value;
+  }
+
   function showJson(el, data) {
     el.textContent = JSON.stringify(data, null, 2);
   }
@@ -66,7 +78,7 @@
   async function buildPlan() {
     const body = {
       symbol: els.tinySymbol.value.trim().toUpperCase(),
-      fixed_notional_usdt: Number(els.tinyNotional.value),
+      fixed_notional_usdt: parseNumber(els.tinyNotional.value),
       require_fresh_signal: els.tinyFreshOnly.checked,
     };
     const payload = await callApi('/api/tiny-live/plan', { method: 'POST', body: JSON.stringify(body) });
@@ -79,7 +91,7 @@
 
   async function executePlan() {
     const symbol = els.tinySymbol.value.trim().toUpperCase();
-    const notional = Number(els.tinyNotional.value);
+    const notional = parseNumber(els.tinyNotional.value);
     const fresh = els.tinyFreshOnly.checked;
     const status = await callApi('/api/live-adapter/status');
     const modeText = status.enabled ? (status.dry_run ? 'dry-run' : 'LIVE') : 'disabled';

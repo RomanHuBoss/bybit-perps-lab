@@ -376,9 +376,13 @@ class PaperTradingManager:
             if risk_per_unit <= 0:
                 continue
             qty = risk_capital / risk_per_unit
-            max_notional = marked_equity_for_sizing * max_leverage
-            if qty * next_entry > max_notional:
-                qty = max_notional / max(next_entry, 1e-9)
+            open_notional = SimulationHelpers.total_open_notional(runtime.positions, runtime.bar_maps, ts)
+            max_total_notional = marked_equity_for_sizing * max_leverage
+            available_notional = max(max_total_notional - open_notional, 0.0)
+            if available_notional <= 0:
+                continue
+            if qty * next_entry > available_notional:
+                qty = available_notional / max(next_entry, 1e-9)
             if qty <= 0:
                 continue
             entry_fee = qty * next_entry * entry_fee_rate

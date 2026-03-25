@@ -104,6 +104,27 @@ async function api(path, options = {}) {
   return payload;
 }
 
+function parseLocaleNumber(raw, { fallback = null } = {}) {
+  if (raw === null || raw === undefined) return fallback;
+  const text = String(raw).trim();
+  if (!text) return fallback;
+  const normalized = text.replace(/\s+/g, '').replace(',', '.');
+  const value = Number(normalized);
+  if (!Number.isFinite(value)) throw new Error(`Некорректное число: ${raw}`);
+  return value;
+}
+
+window.parseLocaleNumber = parseLocaleNumber;
+
+function readNumberInput(input, { fallback = null, allowEmpty = false } = {}) {
+  const value = parseLocaleNumber(input?.value, { fallback: allowEmpty ? fallback : null });
+  if (value === null && !allowEmpty) {
+    const label = input?.name || input?.id || 'value';
+    throw new Error(`Некорректное число в поле ${label}`);
+  }
+  return value;
+}
+
 async function waitForJob(jobId, { intervalMs = 700, onTick } = {}) {
   while (true) {
     const job = await api(`/api/jobs/${jobId}`);
@@ -404,20 +425,22 @@ function collectConfigForm() {
   inputs.forEach((input) => {
     if (!input.name) return;
     if (input.type === 'checkbox') out[input.name] = input.checked;
-    else if (input.type === 'number') out[input.name] = Number(input.value);
-    else out[input.name] = input.value;
+    else if (input.type === 'number') {
+      const parsed = readNumberInput(input, { allowEmpty: true });
+      if (parsed !== null) out[input.name] = parsed;
+    } else out[input.name] = input.value;
   });
   return out;
 }
 
 function collectOptimizerOverrides() {
   return {
-    optimizer_trials: Number(els.optimizerTrials?.value || 24),
-    optimizer_train_bars: Number(els.optimizerTrainBars?.value || 2016),
-    optimizer_test_bars: Number(els.optimizerTestBars?.value || 576),
-    optimizer_step_bars: Number(els.optimizerStepBars?.value || 576),
-    optimizer_max_segments: Number(els.optimizerMaxSegments?.value || 8),
-    optimizer_min_trades_test: Number(els.optimizerMinTrades?.value || 12),
+    optimizer_trials: readNumberInput(els.optimizerTrials, { fallback: 24 }),
+    optimizer_train_bars: readNumberInput(els.optimizerTrainBars, { fallback: 2016 }),
+    optimizer_test_bars: readNumberInput(els.optimizerTestBars, { fallback: 576 }),
+    optimizer_step_bars: readNumberInput(els.optimizerStepBars, { fallback: 576 }),
+    optimizer_max_segments: readNumberInput(els.optimizerMaxSegments, { fallback: 8 }),
+    optimizer_min_trades_test: readNumberInput(els.optimizerMinTrades, { fallback: 12 }),
   };
 }
 
@@ -800,7 +823,7 @@ async function loadPaperSession(sessionId = state.latestPaperSessionId) {
 
 els.loadDemoBtn.addEventListener('click', async () => {
   try {
-    const result = await runAsyncJob('Demo-данные', '/api/load-demo-data', { symbols: selectedPickerSymbols('demo'), days: Number(els.demoDays.value), interval: '5' });
+    const result = await runAsyncJob('Demo-данные', '/api/load-demo-data', { symbols: selectedPickerSymbols('demo'), days: readNumberInput(els.demoDays, { fallback: 20 }), interval: '5' });
     log(`Demo-данные: ${result.candles_upserted} свечей, funding ${result.funding_upserted}`, 'success');
     await refreshSymbols();
   } catch (error) { log(error.message.split('\n')[0], 'error'); }
@@ -808,7 +831,7 @@ els.loadDemoBtn.addEventListener('click', async () => {
 
 els.syncBybitBtn.addEventListener('click', async () => {
   try {
-    const result = await runAsyncJob('Bybit sync', '/api/sync-bybit-public', { symbols: selectedPickerSymbols('sync'), days: Number(els.syncDays.value), interval: '5' });
+    const result = await runAsyncJob('Bybit sync', '/api/sync-bybit-public', { symbols: selectedPickerSymbols('sync'), days: readNumberInput(els.syncDays, { fallback: 14 }), interval: '5' });
     log(`Bybit sync: ${result.candles_upserted} свечей, funding ${result.funding_upserted}`, 'success');
     await refreshSymbols();
   } catch (error) { log(error.message.split('\n')[0], 'error'); }
@@ -852,7 +875,7 @@ els.runOptimizerBtn?.addEventListener('click', async () => {
     const symbol = selectedPickerValue('optimizer');
     if (!symbol) throw new Error('Выбери символ для optimizer');
     const overrides = { ...collectConfigForm(), ...collectOptimizerOverrides() };
-    const trials = Number(els.optimizerTrials?.value || 24);
+    const trials = readNumberInput(els.optimizerTrials, { fallback: 24 });
     const result = await runAsyncJob('Optimizer', '/api/run-optimizer', { symbols: [symbol], trials, overrides });
     state.latestOptimizerId = result.optimizer_run_id;
     state.latestOptimizerBestParams = result.best_params || null;
@@ -889,7 +912,7 @@ els.createPaperBtn.addEventListener('click', async () => {
         name: els.paperName.value.trim() || 'paper-demo',
         symbols: selectedSymbols(),
         overrides: collectConfigForm(),
-        auto_steps: Number(els.paperSteps.value),
+        auto_steps: readNumberInput(els.paperSteps, { fallback: 1 }),
       }),
     });
     state.latestPaperSessionId = result.session.id;
@@ -901,7 +924,7 @@ els.createPaperBtn.addEventListener('click', async () => {
 els.paperStepBtn.addEventListener('click', async () => {
   try {
     if (!state.latestPaperSessionId) throw new Error('Сначала создай paper-сессию');
-    await api(`/api/paper-sessions/${state.latestPaperSessionId}/step`, { method: 'POST', body: JSON.stringify({ steps: Number(els.paperSteps.value) || 1 }) });
+    await api(`/api/paper-sessions/${state.latestPaperSessionId}/step`, { method: 'POST', body: JSON.stringify({ steps: readNumberInput(els.paperSteps, { fallback: 1 }) || 1 }) });
     await loadPaperSession(state.latestPaperSessionId);
     log('Paper-сессия продвинута', 'success');
   } catch (error) { log(error.message, 'error'); }
@@ -979,6 +1002,15 @@ els.configForm.addEventListener('submit', async (event) => {
     fillConfigForm(result);
     log('Конфигурация сохранена', 'success');
   } catch (error) { log(error.message, 'error'); }
+});
+
+document.addEventListener('change', (event) => {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement) || input.type !== 'number') return;
+  try {
+    const parsed = parseLocaleNumber(input.value, { fallback: null });
+    if (parsed !== null) input.value = String(parsed);
+  } catch (_) {}
 });
 
 els.csvForm.addEventListener('submit', async (event) => {
