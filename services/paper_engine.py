@@ -40,6 +40,7 @@ class SessionRuntime:
     daily_start_equity: float = 0.0
     last_persisted_trade_count: int = 0
     last_persisted_equity_count: int = 0
+    finalized_at_end: bool = False
 
     def __post_init__(self) -> None:
         if not self.equity_cash:
@@ -128,6 +129,8 @@ class PaperTradingManager:
             self._process_bar(runtime, idx)
             runtime.current_index = idx
 
+        if runtime.current_index >= len(runtime.all_times) - 1 and not runtime.finalized_at_end:
+            self._finalize_runtime_at_end(runtime)
         self._persist_runtime_delta(session_id, session, runtime)
         if runtime.current_index >= len(runtime.all_times) - 1:
             self.stop_background(session_id)
@@ -408,6 +411,27 @@ class PaperTradingManager:
             )
             runtime.positions[signal.symbol] = pos
             runtime.run_signals.append({'symbol': signal.symbol, 'ts': ts, 'entry_ts': actual_entry_ts, 'regime': signal.regime, 'side': signal.side, 'score': signal.score, 'notes': signal.notes})
+
+    def _finalize_runtime_at_end(self, runtime: SessionRuntime) -> None:
+        if runtime.finalized_at_end:
+            return
+        if not runtime.all_times:
+            runtime.finalized_at_end = True
+            return
+        last_ts = runtime.all_times[-1]
+        tp_exit_fee_rate = float(runtime.settings.get('exit_fee_rate_take_profit', 0.0002))
+        tp_exit_slippage_bps = float(runtime.settings.get('exit_slippage_bps_tp', 1.0))
+        for symbol, pos in list(runtime.positions.items()):
+            bar_df = runtime.bar_maps[symbol]
+            last_close = float(bar_df.iloc[-1]['close'])
+            fill_price = SimulationHelpers.apply_slippage(last_close, pos.side, tp_exit_slippage_bps, is_entry=False)
+            cash_delta = SimulationHelpers.incremental_close_cash(pos, fill_price, tp_exit_fee_rate)
+            trade = SimulationHelpers.close_position(pos, last_ts, fill_price, 'end_of_test', tp_exit_fee_rate)
+            runtime.trades.append(trade)
+            runtime.equity_cash += cash_delta
+            runtime.positions.pop(symbol, None)
+        runtime.equity_curve.append({'ts': last_ts.isoformat().replace('+00:00', 'Z'), 'equity': round(runtime.equity_cash, 8)})
+        runtime.finalized_at_end = True
 
     def _persist_runtime_delta(self, session_id: int, session: dict[str, Any], runtime: SessionRuntime) -> None:
         new_trades = runtime.trades[runtime.last_persisted_trade_count:]

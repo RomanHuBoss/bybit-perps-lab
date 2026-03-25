@@ -171,6 +171,14 @@ curl -X POST http://127.0.0.1:8010/api/tiny-live/execute \
   -d '{"symbol":"DOGEUSDT","fixed_notional_usdt":10,"require_fresh_signal":false}'
 ```
 
+## Что исправлено в этой редакции
+
+- demo-генератор теперь создаёт **строго выровненные закрытые 5m-бары** и перед загрузкой очищает старые demo-данные по выбранным символам, чтобы прогоны были воспроизводимыми
+- sync Bybit public теперь **отбрасывает текущую незакрытую свечу**, чтобы не тянуть в бэктест look-ahead через open candle
+- paper replay теперь **принудительно закрывает открытые позиции в конце истории**, как и backtest engine
+- tiny-live planner теперь **округляет stop/take-profit в безопасную сторону по tickSize**, чтобы не подтягивать стоп ближе к входу из-за округления
+- self-check расширен: проверка выравнивания demo-времени, paper/backtest-consistency, directional tick rounding, end-of-test liquidation
+
 ## Ограничения
 
 Это не production OMS и не обещание доходности.

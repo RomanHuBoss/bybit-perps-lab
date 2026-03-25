@@ -113,9 +113,10 @@ class TradePlanner:
         stop_distance = float(signal.get('stop_distance') or abs(float(signal['entry_price']) - float(signal['stop_price'])))
         tp1_r_multiple = float(signal.get('tp1_r_multiple') or (abs(float(signal['tp1_price']) - float(signal['entry_price'])) / max(stop_distance, 1e-9)))
         tp2_r_multiple = float(signal.get('tp2_r_multiple') or (abs(float(signal['tp2_price']) - float(signal['entry_price'])) / max(stop_distance, 1e-9)))
-        recomputed_stop, _, recomputed_tp2 = SimulationHelpers.recompute_levels(float(entry_price), signal['side'], stop_distance, tp1_r_multiple, tp2_r_multiple)
-        stop_price = _round_to_tick(Decimal(str(recomputed_stop)), tick)
-        tp_price = _round_to_tick(Decimal(str(recomputed_tp2)), tick)
+        recomputed_stop, recomputed_tp1, recomputed_tp2 = SimulationHelpers.recompute_levels(float(entry_price), signal['side'], stop_distance, tp1_r_multiple, tp2_r_multiple)
+        stop_price = _round_stop_price(Decimal(str(recomputed_stop)), tick, signal['side'], entry_price)
+        tp1_price = _round_take_profit_price(Decimal(str(recomputed_tp1)), tick, signal['side'], entry_price)
+        tp_price = _round_take_profit_price(Decimal(str(recomputed_tp2)), tick, signal['side'], entry_price)
         risk_to_stop = abs(entry_price - stop_price) * qty
         reward_to_tp = abs(tp_price - entry_price) * qty
         min_notional_estimate = max(min_notional, min_qty * entry_price)
@@ -135,6 +136,7 @@ class TradePlanner:
             'qty': _decimal_to_str(qty),
             'entry_price': float(entry_price),
             'stop_price': float(stop_price),
+            'tp1_price': float(tp1_price),
             'take_profit_price': float(tp_price),
             'risk_to_stop_usdt': float(risk_to_stop),
             'reward_to_take_profit_usdt': float(reward_to_tp),
@@ -259,6 +261,39 @@ def _round_to_tick(value: Decimal, tick: Decimal) -> Decimal:
         return value
     units = (value / tick).to_integral_value(rounding=ROUND_HALF_UP)
     return units * tick
+
+
+def _round_down_to_tick(value: Decimal, tick: Decimal) -> Decimal:
+    return _round_down_step(value, tick) if tick > 0 else value
+
+
+def _round_up_to_tick(value: Decimal, tick: Decimal) -> Decimal:
+    if tick <= 0:
+        return value
+    rounded = _round_down_to_tick(value, tick)
+    if rounded < value:
+        rounded += tick
+    return rounded
+
+
+def _round_stop_price(value: Decimal, tick: Decimal, side: str, entry_price: Decimal) -> Decimal:
+    rounded = _round_down_to_tick(value, tick) if side == 'LONG' else _round_up_to_tick(value, tick)
+    if tick > 0:
+        if side == 'LONG' and rounded >= entry_price:
+            rounded = _round_down_to_tick(entry_price - tick, tick)
+        elif side == 'SHORT' and rounded <= entry_price:
+            rounded = _round_up_to_tick(entry_price + tick, tick)
+    return rounded
+
+
+def _round_take_profit_price(value: Decimal, tick: Decimal, side: str, entry_price: Decimal) -> Decimal:
+    rounded = _round_up_to_tick(value, tick) if side == 'LONG' else _round_down_to_tick(value, tick)
+    if tick > 0:
+        if side == 'LONG' and rounded <= entry_price:
+            rounded = _round_up_to_tick(entry_price + tick, tick)
+        elif side == 'SHORT' and rounded >= entry_price:
+            rounded = _round_down_to_tick(entry_price - tick, tick)
+    return rounded
 
 
 def _decimal_to_str(value: Decimal) -> str:

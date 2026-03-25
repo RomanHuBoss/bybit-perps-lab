@@ -243,6 +243,64 @@ def _to_utc_iso(value) -> str:
     return ts.strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
+def _current_open_candle_start(interval: str, now: pd.Timestamp | None = None) -> pd.Timestamp:
+    now = pd.Timestamp.now(tz='UTC') if now is None else pd.Timestamp(now)
+    now = now.tz_localize('UTC') if now.tzinfo is None else now.tz_convert('UTC')
+    if interval.isdigit():
+        return now.floor(f"{int(interval)}min")
+    if interval == 'D':
+        return now.floor('D')
+    if interval == 'W':
+        day_start = now.floor('D')
+        return day_start - pd.Timedelta(days=day_start.weekday())
+    if interval == 'M':
+        return now.floor('D').replace(day=1)
+    raise DataValidationError(f'Unsupported interval for candle boundary detection: {interval}')
+
+
+def _last_closed_candle_start(interval: str, now: pd.Timestamp | None = None) -> pd.Timestamp:
+    open_start = _current_open_candle_start(interval, now=now)
+    if interval.isdigit():
+        return open_start - pd.Timedelta(minutes=int(interval))
+    if interval == 'D':
+        return open_start - pd.Timedelta(days=1)
+    if interval == 'W':
+        return open_start - pd.Timedelta(weeks=1)
+    if interval == 'M':
+        prev_month = open_start - pd.offsets.MonthBegin(1)
+        return pd.Timestamp(prev_month).tz_localize('UTC') if pd.Timestamp(prev_month).tzinfo is None else pd.Timestamp(prev_month).tz_convert('UTC')
+    raise DataValidationError(f'Unsupported interval for closed candle detection: {interval}')
+
+
+def _delete_symbol_market_data(symbols: Iterable[str], interval: str | None = None, delete_funding: bool = False) -> None:
+    symbols = [str(symbol).upper() for symbol in symbols]
+    if not symbols:
+        return
+    placeholders = ','.join(['?'] * len(symbols))
+    with get_conn() as conn:
+        if interval is not None:
+            conn.execute(
+                f'DELETE FROM candles WHERE interval = ? AND symbol IN ({placeholders})',
+                [interval, *symbols],
+            )
+        else:
+            conn.execute(f'DELETE FROM candles WHERE symbol IN ({placeholders})', symbols)
+        if delete_funding:
+            conn.execute(f'DELETE FROM funding_rates WHERE symbol IN ({placeholders})', symbols)
+        conn.commit()
+
+
+def _apply_ohlcv_sanity_filters(clean: pd.DataFrame) -> pd.DataFrame:
+    if clean.empty:
+        return clean
+    numeric_ok = (clean[['open', 'high', 'low', 'close']] > 0).all(axis=1) & (clean['volume'] >= 0)
+    structure_ok = (
+        (clean['high'] >= clean[['open', 'close', 'low']].max(axis=1))
+        & (clean['low'] <= clean[['open', 'close', 'high']].min(axis=1))
+    )
+    return clean[numeric_ok & structure_ok].copy()
+
+
 def normalize_candles(df: pd.DataFrame, symbol: str, interval: str, source: str) -> pd.DataFrame:
     required = {'timestamp', 'open', 'high', 'low', 'close', 'volume'}
     missing = required - set(df.columns)
@@ -257,6 +315,7 @@ def normalize_candles(df: pd.DataFrame, symbol: str, interval: str, source: str)
         clean[col] = pd.to_numeric(clean[col], errors='coerce')
     clean = clean.dropna(subset=['ts', 'open', 'high', 'low', 'close', 'volume'])
     clean = clean[['symbol', 'interval', 'ts', 'open', 'high', 'low', 'close', 'volume']].copy()
+    clean = _apply_ohlcv_sanity_filters(clean)
     clean['source'] = source
     clean = clean.sort_values('ts').drop_duplicates(subset=['symbol', 'interval', 'ts'], keep='last')
     if clean.empty:
@@ -404,7 +463,8 @@ def generate_demo_market_data(symbols: list[str], interval: str = '5', days: int
     if interval != '5':
         raise DataValidationError('Demo generator currently supports 5-minute data only.')
     periods = max(days * 24 * 12, 800)
-    end = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    symbols = [str(symbol).upper() for symbol in symbols]
+    end = _last_closed_candle_start(interval, now=pd.Timestamp.now(tz='UTC'))
     ts = pd.date_range(end=end, periods=periods, freq='5min', tz='UTC')
 
     defaults = {
@@ -418,6 +478,7 @@ def generate_demo_market_data(symbols: list[str], interval: str = '5', days: int
 
     total_candles = 0
     total_funding = 0
+    _delete_symbol_market_data(symbols, interval=interval, delete_funding=True)
     for idx, symbol in enumerate(symbols):
         base = defaults.get(symbol.upper(), 100 + idx * 15)
         candle_df = _synthetic_path(base_price=base, periods=periods, seed=42 + idx)
@@ -425,7 +486,8 @@ def generate_demo_market_data(symbols: list[str], interval: str = '5', days: int
         candles = normalize_candles(candle_df, symbol=symbol, interval=interval, source='demo-generator')
         total_candles += upsert_candles(candles)
 
-        funding_ts = pd.date_range(end=end, periods=max(8, days * 3), freq='8h', tz='UTC')
+        funding_end = pd.Timestamp.now(tz='UTC').floor('8h') - pd.Timedelta(hours=8)
+        funding_ts = pd.date_range(end=funding_end, periods=max(8, days * 3), freq='8h', tz='UTC')
         funding_rng = np.random.default_rng(100 + idx)
         funding_df = pd.DataFrame({
             'timestamp': funding_ts,
@@ -480,10 +542,13 @@ def _fetch_bybit_funding_chunk(symbol: str, end_ms: int | None = None, limit: in
 def sync_bybit_public(symbols: list[str], interval: str = '5', days: int = 14) -> dict:
     if interval not in SUPPORTED_INTERVALS:
         raise DataValidationError(f'Unsupported interval: {interval}')
-    end = datetime.now(timezone.utc)
+    now = pd.Timestamp.now(tz='UTC')
+    open_candle_start = _current_open_candle_start(interval, now=now)
+    end = now.to_pydatetime()
     start = end - timedelta(days=days)
     start_ms = int(start.timestamp() * 1000)
     end_ms = int(end.timestamp() * 1000)
+    open_candle_cutoff_iso = _to_utc_iso(open_candle_start)
 
     total_candles = 0
     total_funding = 0
@@ -504,7 +569,7 @@ def sync_bybit_public(symbols: list[str], interval: str = '5', days: int = 14) -
         if all_rows:
             kline_df = pd.DataFrame(all_rows, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'turnover'])
             candles = normalize_candles(kline_df, symbol=symbol, interval=interval, source='bybit-public-api')
-            candles = candles[candles['ts'] >= _to_utc_iso(start)]
+            candles = candles[(candles['ts'] >= _to_utc_iso(start)) & (candles['ts'] < open_candle_cutoff_iso)]
             total_candles += upsert_candles(candles)
 
         funding_rows: list[dict] = []
