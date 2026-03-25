@@ -51,6 +51,7 @@ class OptimizerEngine:
         max_segments = int(self.settings.get('optimizer_max_segments', self.settings.get('walkforward_max_segments', 8)))
         trials_count = int(trials or self.settings.get('optimizer_trials', 24))
 
+        self._validate_window_params(train_bars, test_bars, step_bars)
         if len(all_times) < train_bars + test_bars + 10:
             raise ValueError('Not enough bars for optimizer. Load a longer history or reduce optimizer windows.')
 
@@ -177,7 +178,7 @@ class OptimizerEngine:
         trades_df = pd.DataFrame(aggregate_trades)
         equity_df = pd.DataFrame(aggregate_equity)
         summary = SimulationHelpers.compute_metrics(trades_df, equity_df, starting_equity)
-        score = self._objective(summary)
+        score = self._objective(summary, segments)
         return {
             'params': params,
             'summary': summary,
@@ -187,25 +188,61 @@ class OptimizerEngine:
             'trades': aggregate_trades,
         }
 
-    def _objective(self, summary: dict[str, Any]) -> float:
+    def _objective(self, summary: dict[str, Any], segments: list[dict[str, Any]] | None = None) -> float:
         min_trades = int(self.settings.get('optimizer_min_trades_test', 12))
         trades = int(summary.get('trades_count', 0))
         pf = summary.get('profit_factor', 0.0)
         if pf == 'inf':
             pf = 3.0
         pf = min(float(pf), 3.0)
+        total_return_pct = float(summary.get('total_return_pct', 0.0))
+        avg_r = float(summary.get('avg_r', 0.0))
+        expectancy_pct = float(summary.get('expectancy_pct', 0.0))
+        win_rate = float(summary.get('win_rate', 0.0))
+        max_drawdown_pct = abs(float(summary.get('max_drawdown_pct', 0.0)))
+        stop_rate = float(summary.get('stop_rate', 0.0))
+
+        segment_returns: list[float] = []
+        if segments:
+            for segment in segments:
+                segment_summary = segment.get('summary') or {}
+                segment_returns.append(float(segment_summary.get('total_return_pct', 0.0)))
+        positive_segment_ratio = (sum(1 for value in segment_returns if value > 0.0) / len(segment_returns)) if segment_returns else 0.0
+        median_segment_return = float(np.median(segment_returns)) if segment_returns else 0.0
+
         score = (
-            float(summary.get('total_return_pct', 0.0)) * 1.4
-            + pf * 6.0
-            + float(summary.get('avg_r', 0.0)) * 12.0
-            + float(summary.get('expectancy_pct', 0.0)) * 8.0
-            + float(summary.get('win_rate', 0.0)) * 0.04
-            - abs(float(summary.get('max_drawdown_pct', 0.0))) * 1.5
-            - float(summary.get('stop_rate', 0.0)) * 0.08
+            total_return_pct * 3.0
+            + pf * 5.0
+            + avg_r * 18.0
+            + expectancy_pct * 10.0
+            + win_rate * 0.02
+            - max_drawdown_pct * 2.0
+            - stop_rate * 0.05
+            + median_segment_return * 1.5
+            + positive_segment_ratio * 3.0
         )
+
         if trades < min_trades:
-            score -= (min_trades - trades) * 1.8
+            score -= (min_trades - trades) * 2.0
+        if total_return_pct <= 0.0:
+            score -= 8.0 + abs(total_return_pct) * 1.5
+        if pf < 1.0:
+            score -= (1.0 - pf) * 20.0
+        if avg_r <= 0.0:
+            score -= abs(avg_r) * 50.0 + 4.0
+        if expectancy_pct <= 0.0:
+            score -= abs(expectancy_pct) * 20.0 + 2.0
+        if segment_returns and positive_segment_ratio < 0.5:
+            score -= (0.5 - positive_segment_ratio) * 8.0
+
         return score
+
+    @staticmethod
+    def _validate_window_params(train_bars: int, test_bars: int, step_bars: int) -> None:
+        if train_bars <= 0 or test_bars <= 0 or step_bars <= 0:
+            raise ValueError('Optimizer windows must be positive integers.')
+        if step_bars < test_bars:
+            raise ValueError('Optimizer step bars must be greater than or equal to test bars to avoid overlapping out-of-sample windows.')
 
     def _strip_trial_payload(self, trial: dict[str, Any]) -> dict[str, Any]:
         return {

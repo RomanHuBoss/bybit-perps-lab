@@ -176,6 +176,42 @@ def main() -> None:
     assert abs(float(tp_ladder_result['trades'][0]['gross_pnl']) - 155.0) < 1e-9
     print('same-bar tp ladder regression: OK')
 
+    optimizer_probe = OptimizerEngine(settings)
+    profitable_summary = {
+        'total_return_pct': 0.05,
+        'profit_factor': 1.01,
+        'avg_r': 0.01,
+        'expectancy_pct': 0.002,
+        'win_rate': 55.0,
+        'max_drawdown_pct': -0.8,
+        'stop_rate': 65.0,
+        'trades_count': 28,
+    }
+    cosmetically_good_loser = {
+        'total_return_pct': -0.12,
+        'profit_factor': 0.95,
+        'avg_r': -0.02,
+        'expectancy_pct': -0.004,
+        'win_rate': 56.0,
+        'max_drawdown_pct': -0.63,
+        'stop_rate': 65.5,
+        'trades_count': 32,
+    }
+    assert optimizer_probe._objective(profitable_summary) > optimizer_probe._objective(cosmetically_good_loser)
+    print('optimizer profitability-first objective regression: OK')
+
+    try:
+        OptimizerEngine(settings | {'optimizer_train_bars': 1000, 'optimizer_test_bars': 600, 'optimizer_step_bars': 500})._validate_window_params(1000, 600, 500)
+        raise AssertionError('optimizer overlap validation failed')
+    except ValueError:
+        pass
+    try:
+        WalkForwardEngine(settings | {'walkforward_train_bars': 1000, 'walkforward_test_bars': 600, 'walkforward_step_bars': 500})._validate_window_params(1000, 600, 500)
+        raise AssertionError('walk-forward overlap validation failed')
+    except ValueError:
+        pass
+    print('window-overlap validation regression: OK')
+
     ts = pd.Timestamp('2026-01-01T00:00:00Z')
     dummy_bars = pd.DataFrame([{'ts': ts, 'symbol': 'BTCUSDT', 'open': 100.0, 'high': 100.0, 'low': 100.0, 'close': 100.0, 'volume': 1.0}])
     prepared = PreparedMarket(symbol_bars={'BTCUSDT': dummy_bars}, signals_by_symbol={'BTCUSDT': {}}, signal_rows=[], funding_maps={}, all_times=[ts])

@@ -236,7 +236,7 @@ def create_app() -> Flask:
                 **trial['params'],
             }
             rows.append(row)
-        return _csv_response(f'optimizer_{run_id}_trials.csv', rows)
+        return _csv_response(f'optimizer_run_{run_id}_trials_{len(rows)}.csv', rows)
 
     @app.post('/api/optimizer-runs/<int:run_id>/apply-best')
     def api_apply_optimizer_best(run_id: int):

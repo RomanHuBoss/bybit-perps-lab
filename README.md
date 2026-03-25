@@ -215,3 +215,7 @@ curl -X POST http://127.0.0.1:8010/api/tiny-live/execute \
 - fixed stop execution on gap-through bars: backtest/paper now close at realistic open-or-worse reference price instead of stale stop level
 - fixed same-bar TP ladder handling: TP1 and TP2 can both complete within one bar when the range clearly reaches both levels
 - self-check extended with regressions for gap stops, same-bar TP ladder, and timeframe-consistent volume filter
+
+- optimizer objective now heavily penalizes cosmetically good but still losing configurations (negative return / PF<1 / avg R<=0)
+- optimizer and walk-forward now reject overlapping out-of-sample windows where step_bars < test_bars
+- optimizer CSV export filenames now include run id and actual trial count to avoid confusion with run numbers

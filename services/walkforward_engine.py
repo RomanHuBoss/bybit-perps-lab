@@ -25,6 +25,7 @@ class WalkForwardEngine:
         train_bars = int(self.settings.get('walkforward_train_bars', 2016))
         test_bars = int(self.settings.get('walkforward_test_bars', 576))
         step_bars = int(self.settings.get('walkforward_step_bars', test_bars))
+        self._validate_window_params(train_bars, test_bars, step_bars)
         if len(all_times) < train_bars + test_bars + 10:
             raise ValueError('Not enough bars for walk-forward. Load a longer history or reduce train/test window sizes.')
 
@@ -136,19 +137,44 @@ class WalkForwardEngine:
     def _score_train_result(self, summary: dict[str, Any]) -> float:
         min_trades = int(self.settings.get('walkforward_min_trades_train', 6))
         trades = int(summary.get('trades_count', 0))
-        penalty = 0.0 if trades >= min_trades else (min_trades - trades) * 6.0
         profit_factor = summary.get('profit_factor', 0.0)
         if profit_factor == 'inf':
             profit_factor = 3.0
+        profit_factor = min(float(profit_factor), 3.0)
+        total_return_pct = float(summary.get('total_return_pct', 0.0))
+        avg_r = float(summary.get('avg_r', 0.0))
+        expectancy_pct = float(summary.get('expectancy_pct', 0.0))
+        win_rate = float(summary.get('win_rate', 0.0))
+        max_drawdown_pct = abs(float(summary.get('max_drawdown_pct', 0.0)))
+        stop_rate = float(summary.get('stop_rate', 0.0))
+
         score = (
-            float(summary.get('total_return_pct', 0.0))
-            - abs(float(summary.get('max_drawdown_pct', 0.0))) * 0.65
-            + float(summary.get('win_rate', 0.0)) * 0.04
-            + float(profit_factor) * 2.5
-            + float(summary.get('avg_r', 0.0)) * 12.0
-            - penalty
+            total_return_pct * 3.0
+            + profit_factor * 4.0
+            + avg_r * 18.0
+            + expectancy_pct * 10.0
+            + win_rate * 0.02
+            - max_drawdown_pct * 1.5
+            - stop_rate * 0.04
         )
+        if trades < min_trades:
+            score -= (min_trades - trades) * 2.0
+        if total_return_pct <= 0.0:
+            score -= 8.0 + abs(total_return_pct) * 1.5
+        if profit_factor < 1.0:
+            score -= (1.0 - profit_factor) * 16.0
+        if avg_r <= 0.0:
+            score -= abs(avg_r) * 40.0 + 4.0
+        if expectancy_pct <= 0.0:
+            score -= abs(expectancy_pct) * 16.0 + 2.0
         return score
+
+    @staticmethod
+    def _validate_window_params(train_bars: int, test_bars: int, step_bars: int) -> None:
+        if train_bars <= 0 or test_bars <= 0 or step_bars <= 0:
+            raise ValueError('Walk-forward windows must be positive integers.')
+        if step_bars < test_bars:
+            raise ValueError('Walk-forward step bars must be greater than or equal to test bars to avoid overlapping out-of-sample windows.')
 
     def _persist_run(
         self,
