@@ -3,221 +3,275 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Bybit Perps Lab v4 v4 Tiny Live</title>
+  <title>Bybit Perps Lab v4</title>
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
-  <div class="shell">
-    <aside class="sidebar">
-      <div>
+  <div class="shell app-shell">
+    <aside class="sidebar app-sidebar">
+      <div class="brand-block">
         <div class="eyebrow">локальный стек v4</div>
         <h1>Bybit Perps Lab v4</h1>
-        <p class="muted">Python + SQLite + HTML/CSS/Vanilla JS. Backtest, walk-forward, paper replay и безопасный live-adapter dry-run слой.</p>
+        <p class="muted">Исследование стратегии, ручной backtest / walk-forward, paper replay и отдельный dry-run / live контур.</p>
       </div>
 
-      <section class="panel compact">
-        <h2>Подготовка данных</h2>
-        <div class="stack">
-          <button id="loadDemoBtn" class="primary">Загрузить demo-данные</button>
-          <div class="grid two prep-grid">
-            <label class="picker-field">
-              <span>Символы</span>
-              <div id="demoPicker" class="multi-select"></div>
-              <p class="hint" id="demoPickerHint">Каталог Bybit linear USDT, поиск по символу и монете, множественный выбор.</p>
-            </label>
-            <label><span>Дней</span><input id="demoDays" type="number" min="5" value="20" /></label>
-          </div>
-          <button id="syncBybitBtn">Синхронизировать Bybit Public</button>
-          <div class="grid two prep-grid">
-            <label class="picker-field">
-              <span>Символы</span>
-              <div id="syncPicker" class="multi-select"></div>
-              <p class="hint" id="syncPickerHint">Каталог Bybit linear USDT, сортировка по 24h turnover.</p>
-            </label>
-            <label><span>Дней</span><input id="syncDays" type="number" min="1" value="14" /></label>
-          </div>
+      <section class="panel compact nav-panel">
+        <div class="section-head compact-head">
+          <h2>Рабочие зоны</h2>
+        </div>
+        <div class="tab-nav" role="tablist" aria-label="Основные рабочие зоны">
+          <button type="button" class="tab-btn active" data-tab-target="research" role="tab" aria-selected="true">Research</button>
+          <button type="button" class="tab-btn" data-tab-target="paper" role="tab" aria-selected="false">Paper replay</button>
+          <button type="button" class="tab-btn" data-tab-target="live" role="tab" aria-selected="false">Live / dry-run</button>
+          <button type="button" class="tab-btn" data-tab-target="data" role="tab" aria-selected="false">Data</button>
         </div>
       </section>
 
-      <section class="panel compact">
-        <h2>Импорт CSV</h2>
-        <form id="csvForm" class="stack">
-          <div class="grid two prep-grid">
-            <label class="picker-field">
-              <span>Символ</span>
-              <input id="csvSymbol" name="symbol" type="hidden" value="BTCUSDT" />
-              <div id="csvPicker" class="multi-select single-select"></div>
-              <p class="hint" id="csvPickerHint">Каталог Bybit linear USDT, выбор одного символа для маркировки импортируемого CSV.</p>
-            </label>
-            <label><span>Интервал</span><input name="interval" required value="5" /></label>
-          </div>
-          <label><span>CSV</span><input name="file" type="file" accept=".csv" required /></label>
-          <button type="submit">Импортировать</button>
-          <p class="hint">Ожидаются колонки: timestamp, open, high, low, close, volume</p>
-        </form>
-      </section>
-
-      <section class="panel compact">
-        <h2>Optimizer по паре</h2>
-        <div class="stack">
-          <label class="picker-field">
-            <span>Символ</span>
-            <div id="optimizerPicker" class="multi-select single-select"></div>
-            <p class="hint" id="optimizerPickerHint">Каталог Bybit linear USDT, один символ для подбора параметров.</p>
-          </label>
-          <div class="grid two prep-grid">
-            <label><span>Trials</span><input id="optimizerTrials" type="number" min="4" step="1" value="24" /></label>
-            <label><span>Сегментов</span><input id="optimizerMaxSegments" type="number" min="2" step="1" value="8" /></label>
-            <label><span>Train, баров</span><input id="optimizerTrainBars" type="number" min="200" step="1" value="2016" /></label>
-            <label><span>Test, баров</span><input id="optimizerTestBars" type="number" min="50" step="1" value="576" /></label>
-            <label><span>Шаг окна</span><input id="optimizerStepBars" type="number" min="50" step="1" value="576" /></label>
-            <label><span>Мин. сделок</span><input id="optimizerMinTrades" type="number" min="1" step="1" value="12" /></label>
-          </div>
-          <div class="actions small-actions">
-            <button id="runOptimizerBtn">Запустить optimizer</button>
-            <button id="applyBestOptimizerBtn">Применить лучший набор</button>
-          </div>
-          <p class="hint">Optimizer делает адаптивный поиск параметров по одной паре и проверяет кандидатов на rolling train/test окнах.</p>
+      <section class="panel compact status-summary-panel">
+        <div class="section-head compact-head">
+          <h2>Краткий статус</h2>
         </div>
-      </section>
-
-      <section class="panel compact">
-        <h2>Автоисследование</h2>
-        <div class="stack">
-          <label>
-            <span>Preset</span>
-            <select id="researchPreset"></select>
-          </label>
-          <label><span>Заметка</span><input id="researchNote" type="text" placeholder="например: SOLUSDT / 60d / patch v4" /></label>
-          <div class="actions small-actions">
-            <button id="applyResearchPresetBtn">Заполнить preset</button>
-            <button id="runResearchBtn" class="primary">Запустить автоисследование</button>
-            <button id="loadLatestResearchBtn">Последнее исследование</button>
-          </div>
-          <div class="actions small-actions">
-            <button id="downloadResearchReportBtn">Скачать report.md</button>
-            <button id="downloadResearchCsvBtn">Скачать combined CSV</button>
-          </div>
+        <div class="stack tight">
           <div class="status-box research-box">
             <span>Auto research</span>
             <strong id="researchStatus">—</strong>
-            <small id="researchMeta">Использует символ из блока optimizer и сам прогоняет stage-сценарии.</small>
+            <small id="researchMeta">Выберите preset и символ, затем запустите автоисследование.</small>
           </div>
-          <p class="hint">Preset автоматически включает режимы trend/reversion, окна optimizer и сужение диапазонов на втором этапе. Больше не нужно вручную переставлять чекбоксы и числа для каждого цикла.</p>
+          <div class="status-box compact-status">
+            <span>Логика интерфейса</span>
+            <small>Исследование, исполнение и подготовка данных разведены по отдельным вкладкам. Real/dry-run больше не находится рядом с optimizer и backtest.</small>
+          </div>
         </div>
       </section>
 
-      <section class="panel compact">
-        <h2>Параметры</h2>
-        <form id="configForm" class="stack">
-          <div class="grid two">
-            <label><span>Начальный капитал</span><input name="starting_equity" type="number" step="100" /></label>
-            <label><span>Риск на сделку</span><input name="risk_per_trade" type="number" step="0.001" /></label>
-            <label><span>Дневной лимит убытка</span><input name="daily_loss_limit" type="number" step="0.001" /></label>
-            <label><span>Макс. позиций</span><input name="max_concurrent_positions" type="number" step="1" /></label>
-            <label><span>Макс. в одну сторону</span><input name="max_same_side_positions" type="number" step="1" /></label>
-            <label><span>Макс. плечо</span><input name="max_leverage" type="number" step="0.1" /></label>
-            <label><span>Комиссия maker</span><input name="entry_fee_rate" type="number" step="0.00001" /></label>
-            <label><span>Комиссия стопа</span><input name="exit_fee_rate_stop" type="number" step="0.00001" /></label>
-            <label><span>Комиссия тейка</span><input name="exit_fee_rate_take_profit" type="number" step="0.00001" /></label>
-            <label><span>Абс. лимит funding</span><input name="funding_rate_cap_abs" type="number" step="0.00001" /></label>
-            <label><span>Проскальз. входа, б.п.</span><input name="entry_slippage_bps" type="number" step="0.1" /></label>
-            <label><span>Проскальз. стопа, б.п.</span><input name="exit_slippage_bps_stop" type="number" step="0.1" /></label>
-            <label><span>Проскальз. тейка, б.п.</span><input name="exit_slippage_bps_tp" type="number" step="0.1" /></label>
-            <label><span>Множитель объёма</span><input name="volume_multiplier" type="number" step="0.1" /></label>
-            <label><span>Мин. сила тренда</span><input name="trend_strength_min" type="number" step="0.0001" /></label>
-            <label><span>Z-score возврата</span><input name="reversion_zscore_threshold" type="number" step="0.1" /></label>
-            <label><span>Мин. score волат.</span><input name="volatility_score_min" type="number" step="0.01" /></label>
-            <label><span>Макс. score волат.</span><input name="volatility_score_max" type="number" step="0.01" /></label>
-            <label><span>Train-окно, баров</span><input name="walkforward_train_bars" type="number" step="1" /></label>
-            <label><span>Test-окно, баров</span><input name="walkforward_test_bars" type="number" step="1" /></label>
-            <label><span>Шаг окна, баров</span><input name="walkforward_step_bars" type="number" step="1" /></label>
-            <label><span>Макс. сегментов WF</span><input name="walkforward_max_segments" type="number" step="1" /></label>
-            <label><span>Poll paper, сек</span><input name="paper_poll_seconds" type="number" step="0.5" /></label>
-            <label><span>Автошаги paper</span><input name="paper_auto_steps" type="number" step="1" /></label>
-          </div>
-          <div class="grid two">
-            <label class="check"><input name="trend_enabled" type="checkbox" /><span>Trend-модуль</span></label>
-            <label class="check"><input name="reversion_enabled" type="checkbox" /><span>Reversion-модуль</span></label>
-            <label class="check"><input name="regime_filter_enabled" type="checkbox" /><span>Фильтр режима</span></label>
-            <label class="check"><input name="volatility_filter_enabled" type="checkbox" /><span>Фильтр волатильности</span></label>
-            <label class="check"><input name="no_trade_filter_enabled" type="checkbox" /><span>Фильтр no-trade</span></label>
-          </div>
-          <button type="submit">Сохранить конфиг</button>
-        </form>
+      <section class="panel compact console-panel">
+        <div class="section-head compact-head">
+          <h2>Журнал активности</h2>
+        </div>
+        <div id="logBox" class="log-box compact-log"></div>
       </section>
     </aside>
 
-    <main class="content">
-      <section class="hero">
+    <main class="content app-content">
+      <section class="hero workspace-hero">
         <div>
-          <div class="eyebrow">v4</div>
-          <h2>Backtest + Walk-forward + Paper replay</h2>
-          <p class="muted">Trend/Reversion ядро, regime & no-trade фильтры, rolling train/test, экспорт CSV и live-adapter слой с dry-run по умолчанию.</p>
+          <div class="eyebrow">workspace</div>
+          <h2 id="workspaceTitle">Research</h2>
+          <p class="muted" id="workspaceSubtitle">Optimizer, auto research, ручной backtest / walk-forward и единый аналитический workspace для проверки гипотез.</p>
         </div>
-        <div class="actions multi-actions">
-          <button id="refreshSymbolsBtn">Обновить universe и каталог</button>
-          <button id="runBacktestBtn" class="primary">Бэктест</button>
-          <button id="runWalkforwardBtn">Walk-forward</button>
-          <button id="createPaperBtn">Создать paper-сессию</button>
+        <div class="hero-note">
+          <span class="badge subtle-badge">Execution изолирован</span>
+          <span class="badge subtle-badge">UI упрощён</span>
         </div>
       </section>
 
-      <section class="panel">
-        <div class="section-head">
-          <div>
-            <h2>Universe</h2>
-            <p class="hint section-hint" id="universeHint">Universe = локально загруженные символы из candles (interval=5).</p>
-          </div>
-          <span class="badge" id="symbolsCountBadge">0 символов</span>
-        </div>
-        <div id="symbolsList" class="chips"></div>
-      </section>
+      <section class="tab-panel active" data-tab-panel="research" role="tabpanel">
+        <div class="grid analysis-top-grid">
+          <article class="panel compact control-panel">
+            <div class="section-head">
+              <div>
+                <h2>Universe и рабочий набор</h2>
+                <p class="hint section-hint" id="universeHint">Universe = локально загруженные символы из candles (interval=5). Выделение чипов задаёт символы для backtest и walk-forward.</p>
+              </div>
+              <div class="actions small-actions">
+                <span class="badge" id="symbolsCountBadge">0 символов</span>
+                <button id="refreshSymbolsBtn">Обновить universe и каталог</button>
+              </div>
+            </div>
+            <div id="symbolsList" class="chips chips-scroll"></div>
+          </article>
 
-      <section class="metrics-grid" id="metricsGrid">
-        <article class="metric-card"><span>Equity start</span><strong id="metricStart">—</strong></article>
-        <article class="metric-card"><span>Equity end</span><strong id="metricEnd">—</strong></article>
-        <article class="metric-card"><span>Total return</span><strong id="metricReturn">—</strong></article>
-        <article class="metric-card"><span>Max drawdown</span><strong id="metricDrawdown">—</strong></article>
-        <article class="metric-card"><span>Win rate</span><strong id="metricWinRate">—</strong></article>
-        <article class="metric-card"><span>Profit factor</span><strong id="metricProfitFactor">—</strong></article>
-        <article class="metric-card"><span>Sharpe</span><strong id="metricSharpe">—</strong></article>
-        <article class="metric-card"><span>Trades</span><strong id="metricTrades">—</strong></article>
-        <article class="metric-card"><span>Avg R</span><strong id="metricAvgR">—</strong></article>
-        <article class="metric-card"><span>Expectancy / trade</span><strong id="metricExpectancy">—</strong></article>
-        <article class="metric-card"><span>Stop rate</span><strong id="metricStopRate">—</strong></article>
-        <article class="metric-card"><span>Режим просмотра</span><strong id="metricMode">—</strong></article>
-      </section>
-
-      <section class="grid main-grid">
-        <article class="panel chart-panel">
-          <div class="section-head">
-            <h2>Equity curve</h2>
-            <div class="actions small-actions">
-              <span class="badge" id="runBadge">Нет запуска</span>
+          <article class="panel compact control-panel">
+            <div class="section-head">
+              <div>
+                <h2>Ручной backtest / walk-forward</h2>
+                <p class="hint section-hint">Один клик для быстрой проверки текущего strategy profile без перехода в auto research.</p>
+              </div>
+            </div>
+            <div class="actions">
+              <button id="runBacktestBtn" class="primary">Бэктест</button>
+              <button id="runWalkforwardBtn">Walk-forward</button>
               <button id="loadLatestRunBtn">Последний backtest</button>
               <button id="loadLatestWfBtn">Последний walk-forward</button>
-              <button id="loadLatestOptimizerBtn">Последний optimizer</button>
             </div>
-          </div>
-          <canvas id="equityCanvas" width="980" height="360"></canvas>
-        </article>
+          </article>
+        </div>
 
-        <article class="panel log-panel">
-          <div class="section-head"><h2>События</h2></div>
-          <div id="logBox" class="log-box"></div>
-        </article>
-      </section>
+        <div class="grid analysis-main-grid">
+          <article class="panel compact control-panel">
+            <div class="section-head">
+              <div>
+                <h2>Автоисследование</h2>
+                <p class="hint section-hint">Preset-ориентированный multi-stage запуск. Основной сценарий для повторяемого исследования, а не ручной перебор полей.</p>
+              </div>
+            </div>
+            <div class="stack">
+              <label>
+                <span>Preset</span>
+                <select id="researchPreset"></select>
+              </label>
+              <label><span>Заметка</span><input id="researchNote" type="text" placeholder="например: SOLUSDT / 60d / refactor" /></label>
+              <div class="actions small-actions">
+                <button id="applyResearchPresetBtn">Заполнить preset</button>
+                <button id="runResearchBtn" class="primary">Запустить автоисследование</button>
+                <button id="loadLatestResearchBtn">Последнее исследование</button>
+              </div>
+              <div class="actions small-actions">
+                <button id="downloadResearchReportBtn">Скачать report.md</button>
+                <button id="downloadResearchCsvBtn">Скачать combined CSV</button>
+              </div>
+            </div>
+          </article>
 
-      <section class="grid main-grid bottom-grid">
-        <article class="panel table-panel">
+          <article class="panel compact control-panel">
+            <div class="section-head">
+              <div>
+                <h2>Manual optimizer</h2>
+                <p class="hint section-hint">Оставлен как вспомогательный инструмент для ручного probe. Основной исследовательский режим — auto research выше.</p>
+              </div>
+            </div>
+            <div class="stack">
+              <label class="picker-field">
+                <span>Символ</span>
+                <div id="optimizerPicker" class="multi-select single-select"></div>
+                <p class="hint" id="optimizerPickerHint">Каталог Bybit linear USDT, один символ для подбора параметров.</p>
+              </label>
+              <div class="grid two prep-grid">
+                <label><span>Trials</span><input id="optimizerTrials" type="number" min="4" step="1" value="24" /></label>
+                <label><span>Сегментов</span><input id="optimizerMaxSegments" type="number" min="2" step="1" value="8" /></label>
+                <label><span>Train, баров</span><input id="optimizerTrainBars" type="number" min="200" step="1" value="2016" /></label>
+                <label><span>Test, баров</span><input id="optimizerTestBars" type="number" min="50" step="1" value="576" /></label>
+                <label><span>Шаг окна</span><input id="optimizerStepBars" type="number" min="50" step="1" value="576" /></label>
+                <label><span>Мин. сделок</span><input id="optimizerMinTrades" type="number" min="1" step="1" value="12" /></label>
+              </div>
+              <div class="actions small-actions">
+                <button id="runOptimizerBtn">Запустить optimizer</button>
+                <button id="applyBestOptimizerBtn">Применить лучший набор</button>
+                <button id="loadLatestOptimizerBtn">Последний optimizer</button>
+                <button id="exportOptimizerBtn">CSV optimizer</button>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel compact control-panel strategy-panel">
+            <div class="section-head">
+              <div>
+                <h2>Strategy profile</h2>
+                <p class="hint section-hint">Вместо одной огромной стены полей параметры разбиты по смысловым блокам. Основной поток: preset → точечная корректировка → запуск.</p>
+              </div>
+            </div>
+            <form id="configForm" class="stack strategy-form">
+              <details open>
+                <summary>Режимы и ядро стратегии</summary>
+                <div class="grid two">
+                  <label class="check"><input name="trend_enabled" type="checkbox" /><span>Trend-модуль</span></label>
+                  <label class="check"><input name="reversion_enabled" type="checkbox" /><span>Reversion-модуль</span></label>
+                  <label class="check"><input name="regime_filter_enabled" type="checkbox" /><span>Фильтр режима</span></label>
+                  <label class="check"><input name="volatility_filter_enabled" type="checkbox" /><span>Фильтр волатильности</span></label>
+                  <label class="check"><input name="no_trade_filter_enabled" type="checkbox" /><span>Фильтр no-trade</span></label>
+                </div>
+                <div class="grid two">
+                  <label><span>Риск на сделку</span><input name="risk_per_trade" type="number" step="0.001" /></label>
+                  <label><span>Множитель объёма</span><input name="volume_multiplier" type="number" step="0.1" /></label>
+                  <label><span>Мин. сила тренда</span><input name="trend_strength_min" type="number" step="0.0001" /></label>
+                  <label><span>Z-score возврата</span><input name="reversion_zscore_threshold" type="number" step="0.1" /></label>
+                  <label><span>Мин. score волат.</span><input name="volatility_score_min" type="number" step="0.01" /></label>
+                  <label><span>Макс. score волат.</span><input name="volatility_score_max" type="number" step="0.01" /></label>
+                </div>
+              </details>
+
+              <details>
+                <summary>Портфельные ограничения и капитал</summary>
+                <div class="grid two">
+                  <label><span>Начальный капитал</span><input name="starting_equity" type="number" step="100" /></label>
+                  <label><span>Дневной лимит убытка</span><input name="daily_loss_limit" type="number" step="0.001" /></label>
+                  <label><span>Макс. позиций</span><input name="max_concurrent_positions" type="number" step="1" /></label>
+                  <label><span>Макс. в одну сторону</span><input name="max_same_side_positions" type="number" step="1" /></label>
+                  <label><span>Макс. плечо</span><input name="max_leverage" type="number" step="0.1" /></label>
+                  <label><span>Абс. лимит funding</span><input name="funding_rate_cap_abs" type="number" step="0.00001" /></label>
+                </div>
+              </details>
+
+              <details>
+                <summary>Фрикции рынка</summary>
+                <div class="grid two">
+                  <label><span>Комиссия maker</span><input name="entry_fee_rate" type="number" step="0.00001" /></label>
+                  <label><span>Комиссия стопа</span><input name="exit_fee_rate_stop" type="number" step="0.00001" /></label>
+                  <label><span>Комиссия тейка</span><input name="exit_fee_rate_take_profit" type="number" step="0.00001" /></label>
+                  <label><span>Проскальз. входа, б.п.</span><input name="entry_slippage_bps" type="number" step="0.1" /></label>
+                  <label><span>Проскальз. стопа, б.п.</span><input name="exit_slippage_bps_stop" type="number" step="0.1" /></label>
+                  <label><span>Проскальз. тейка, б.п.</span><input name="exit_slippage_bps_tp" type="number" step="0.1" /></label>
+                </div>
+              </details>
+
+              <details>
+                <summary>Walk-forward и paper defaults</summary>
+                <div class="grid two">
+                  <label><span>Train-окно, баров</span><input name="walkforward_train_bars" type="number" step="1" /></label>
+                  <label><span>Test-окно, баров</span><input name="walkforward_test_bars" type="number" step="1" /></label>
+                  <label><span>Шаг окна, баров</span><input name="walkforward_step_bars" type="number" step="1" /></label>
+                  <label><span>Макс. сегментов WF</span><input name="walkforward_max_segments" type="number" step="1" /></label>
+                  <label><span>Poll paper, сек</span><input name="paper_poll_seconds" type="number" step="0.5" /></label>
+                  <label><span>Автошаги paper</span><input name="paper_auto_steps" type="number" step="1" /></label>
+                </div>
+              </details>
+              <button type="submit">Сохранить profile</button>
+            </form>
+          </article>
+        </div>
+
+        <section class="metrics-grid" id="metricsGrid">
+          <article class="metric-card"><span>Equity start</span><strong id="metricStart">—</strong></article>
+          <article class="metric-card"><span>Equity end</span><strong id="metricEnd">—</strong></article>
+          <article class="metric-card"><span>Total return</span><strong id="metricReturn">—</strong></article>
+          <article class="metric-card"><span>Max drawdown</span><strong id="metricDrawdown">—</strong></article>
+          <article class="metric-card"><span>Win rate</span><strong id="metricWinRate">—</strong></article>
+          <article class="metric-card"><span>Profit factor</span><strong id="metricProfitFactor">—</strong></article>
+          <article class="metric-card"><span>Sharpe</span><strong id="metricSharpe">—</strong></article>
+          <article class="metric-card"><span>Trades</span><strong id="metricTrades">—</strong></article>
+          <article class="metric-card"><span>Avg R</span><strong id="metricAvgR">—</strong></article>
+          <article class="metric-card"><span>Expectancy / trade</span><strong id="metricExpectancy">—</strong></article>
+          <article class="metric-card"><span>Stop rate</span><strong id="metricStopRate">—</strong></article>
+          <article class="metric-card"><span>Режим просмотра</span><strong id="metricMode">—</strong></article>
+        </section>
+
+        <section class="grid main-grid">
+          <article class="panel chart-panel">
+            <div class="section-head">
+              <h2>Analytic workspace</h2>
+              <div class="actions small-actions">
+                <span class="badge" id="runBadge">Нет запуска</span>
+                <button id="exportRunBtn">CSV trades</button>
+                <button id="exportWfBtn">CSV segments</button>
+              </div>
+            </div>
+            <canvas id="equityCanvas" width="980" height="360"></canvas>
+          </article>
+
+          <article class="panel table-panel">
+            <div class="section-head">
+              <h2>Сегменты / события исследования</h2>
+            </div>
+            <div class="table-wrap short">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Type</th>
+                    <th>Payload</th>
+                  </tr>
+                </thead>
+                <tbody id="secondaryTbody"></tbody>
+              </table>
+            </div>
+          </article>
+        </section>
+
+        <section class="panel table-panel research-results-panel">
           <div class="section-head">
-            <h2>Сделки / сегменты</h2>
-            <div class="actions small-actions">
-              <button id="exportRunBtn">CSV trades</button>
-              <button id="exportWfBtn">CSV segments</button>
-              <button id="exportPaperBtn">CSV paper</button>
-              <button id="exportOptimizerBtn">CSV optimizer</button>
+            <div>
+              <h2>Сделки / trials / research stages</h2>
+              <p class="hint section-hint">Один workspace для ручного backtest, optimizer и auto research. Тип содержимого определяется последним загруженным режимом.</p>
             </div>
           </div>
           <div class="table-wrap">
@@ -237,34 +291,75 @@
               <tbody id="primaryTbody"></tbody>
             </table>
           </div>
-        </article>
+        </section>
+      </section>
 
-        <article class="panel table-panel">
-          <div class="section-head">
-            <h2>Paper / live-adapter</h2>
-          </div>
-          <div class="stack">
-            <div class="grid two">
-              <label><span>Имя paper-сессии</span><input id="paperName" value="paper-demo" /></label>
-              <label><span>Шагов за тик</span><input id="paperSteps" type="number" min="1" value="1" /></label>
-            </div>
-            <div class="actions small-actions">
-              <button id="paperStartBtn">Старт replay</button>
-              <button id="paperStepBtn">1 шаг</button>
-              <button id="paperStopBtn">Стоп replay</button>
-              <button id="paperRefreshBtn">Обновить session</button>
-            </div>
-            <div class="status-grid">
-              <div class="status-box">
-                <span>Paper session</span>
-                <strong id="paperStatus">—</strong>
-                <small id="paperMeta">—</small>
+      <section class="tab-panel" data-tab-panel="paper" role="tabpanel" hidden>
+        <div class="grid paper-top-grid">
+          <article class="panel compact control-panel">
+            <div class="section-head">
+              <div>
+                <h2>Paper replay</h2>
+                <p class="hint section-hint">Paper-сессия вынесена из исследовательского контура. Здесь только replay, paper-метрики и журнал paper-событий.</p>
               </div>
-              <div class="status-box">
-                <span>Live adapter</span>
-                <strong id="liveStatus">—</strong>
-                <small id="liveMeta">—</small>
+              <div class="actions small-actions">
+                <button id="createPaperBtn" class="primary">Создать paper-сессию</button>
+                <button id="exportPaperBtn">CSV paper</button>
               </div>
+            </div>
+            <div class="stack">
+              <div class="grid two">
+                <label><span>Имя paper-сессии</span><input id="paperName" value="paper-demo" /></label>
+                <label><span>Шагов за тик</span><input id="paperSteps" type="number" min="1" value="1" /></label>
+              </div>
+              <div class="actions small-actions">
+                <button id="paperStartBtn">Старт replay</button>
+                <button id="paperStepBtn">1 шаг</button>
+                <button id="paperStopBtn">Стоп replay</button>
+                <button id="paperRefreshBtn">Обновить session</button>
+              </div>
+              <div class="status-grid">
+                <div class="status-box">
+                  <span>Paper session</span>
+                  <strong id="paperStatus">—</strong>
+                  <small id="paperMeta">—</small>
+                </div>
+                <div class="status-box">
+                  <span>Paper view</span>
+                  <strong id="paperRunBadge">Нет данных</strong>
+                  <small id="paperRunMeta">Создайте или загрузите сессию для просмотра кривой equity и сделок.</small>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel compact control-panel">
+            <div class="section-head">
+              <div>
+                <h2>Paper summary</h2>
+                <p class="hint section-hint">Paper метрики больше не смешиваются с результатами optimizer/backtest.</p>
+              </div>
+            </div>
+            <div class="metrics-grid mini-metrics-grid">
+              <article class="metric-card mini"><span>Total return</span><strong id="paperMetricReturn">—</strong></article>
+              <article class="metric-card mini"><span>Profit factor</span><strong id="paperMetricProfitFactor">—</strong></article>
+              <article class="metric-card mini"><span>Trades</span><strong id="paperMetricTrades">—</strong></article>
+              <article class="metric-card mini"><span>Avg R</span><strong id="paperMetricAvgR">—</strong></article>
+            </div>
+          </article>
+        </div>
+
+        <section class="grid main-grid">
+          <article class="panel chart-panel">
+            <div class="section-head">
+              <h2>Paper equity</h2>
+            </div>
+            <canvas id="paperEquityCanvas" width="980" height="320"></canvas>
+          </article>
+
+          <article class="panel table-panel">
+            <div class="section-head">
+              <h2>Paper события</h2>
             </div>
             <div class="table-wrap short">
               <table>
@@ -275,64 +370,171 @@
                     <th>Payload</th>
                   </tr>
                 </thead>
-                <tbody id="secondaryTbody"></tbody>
+                <tbody id="paperEventsTbody"></tbody>
               </table>
             </div>
+          </article>
+        </section>
+
+        <section class="panel table-panel">
+          <div class="section-head">
+            <h2>Paper сделки</h2>
           </div>
-        </article>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Regime</th>
+                  <th>Side</th>
+                  <th>Entry</th>
+                  <th>Exit</th>
+                  <th>Net PnL</th>
+                  <th>R</th>
+                  <th>Reason</th>
+                </tr>
+              </thead>
+              <tbody id="paperTradesTbody"></tbody>
+            </table>
+          </div>
+        </section>
       </section>
 
-      <section class="panel">
-        <div class="section-head">
-          <h2>Tiny live / dry-run</h2>
-          <span class="badge">фиксированный вход</span>
-        </div>
-        <div class="grid main-grid bottom-grid">
-          <article class="panel table-panel">
-            <div class="stack">
-              <div class="grid three">
-                <label class="picker-field">
-                  <span>Символ</span>
-                  <input id="tinySymbol" type="hidden" value="DOGEUSDT" />
-                  <div id="tinyPicker" class="multi-select single-select"></div>
-                  <p class="hint" id="tinyPickerHint">Каталог Bybit linear USDT, один символ для плана и dry-run.</p>
-                </label>
-                <label><span>Notional, USDT</span><input id="tinyNotional" type="number" min="5" step="1" value="10" /></label>
-                <label class="check"><input id="tinyFreshOnly" type="checkbox" checked /><span>Только свежий сигнал</span></label>
-              </div>
-              <div class="actions small-actions">
-                <button id="loadSignalsBtn">Последние сигналы</button>
-                <button id="buildPlanBtn">Собрать план</button>
-                <button id="executeTinyBtn" class="danger">Отправить ордер</button>
-                <button id="refreshTinyLogsBtn">Обновить лог</button>
-              </div>
-              <div class="status-grid">
-                <div class="status-box">
-                  <span>Последний план</span>
-                  <strong id="tinyPlanTitle">—</strong>
-                  <small id="tinyPlanMeta">—</small>
-                </div>
-                <div class="status-box">
-                  <span>Режим адаптера</span>
-                  <strong id="tinyMode">—</strong>
-                  <small id="tinyModeMeta">dry-run по умолчанию</small>
-                </div>
-              </div>
-              <div class="tiny-grid">
-                <div>
-                  <h3>План / сигналы</h3>
-                  <pre id="tinyOutput" class="json-box">{}</pre>
-                </div>
-                <div>
-                  <h3>Лог tiny-live</h3>
-                  <pre id="tinyLogs" class="json-box">[]</pre>
-                </div>
+      <section class="tab-panel" data-tab-panel="live" role="tabpanel" hidden>
+        <article class="panel compact warning-panel">
+          <div class="section-head">
+            <div>
+              <h2>Live / dry-run контур</h2>
+              <p class="hint section-hint">Эта зона физически отделена от optimizer, auto research и paper replay. Исполнение требует отдельного подтверждения.</p>
+            </div>
+          </div>
+          <div class="warning-strip">
+            <strong>Внимание:</strong>
+            <span>Работа с dry-run / live должна выполняться отдельно от исследовательского потока. Сначала собрать план, проверить режим адаптера и только потом вооружить кнопку отправки.</span>
+          </div>
+        </article>
+
+        <section class="grid main-grid live-status-grid">
+          <article class="panel compact control-panel">
+            <div class="section-head">
+              <h2>Статус live-adapter</h2>
+            </div>
+            <div class="status-grid single-status-grid">
+              <div class="status-box">
+                <span>Live adapter</span>
+                <strong id="liveStatus">—</strong>
+                <small id="liveMeta">—</small>
               </div>
             </div>
           </article>
-        </div>
+        </section>
+
+        <section class="panel">
+          <div class="section-head">
+            <h2>Tiny live / dry-run</h2>
+            <span class="badge">отдельный execution workspace</span>
+          </div>
+          <div class="stack">
+            <div class="grid three">
+              <label class="picker-field">
+                <span>Символ</span>
+                <input id="tinySymbol" type="hidden" value="DOGEUSDT" />
+                <div id="tinyPicker" class="multi-select single-select"></div>
+                <p class="hint" id="tinyPickerHint">Каталог Bybit linear USDT, один символ для плана и dry-run.</p>
+              </label>
+              <label><span>Notional, USDT</span><input id="tinyNotional" type="number" min="5" step="1" value="10" /></label>
+              <label class="check"><input id="tinyFreshOnly" type="checkbox" checked /><span>Только свежий сигнал</span></label>
+            </div>
+            <div class="actions small-actions">
+              <button id="loadSignalsBtn">Последние сигналы</button>
+              <button id="buildPlanBtn">Собрать план</button>
+              <button id="refreshTinyLogsBtn">Обновить лог</button>
+            </div>
+            <div class="live-arming-row">
+              <label class="check live-arm-check"><input id="tinyArm" type="checkbox" /><span>Вооружить отправку dry-run / live</span></label>
+              <button id="executeTinyBtn" class="danger" disabled>Отправить ордер</button>
+            </div>
+            <div class="status-grid">
+              <div class="status-box">
+                <span>Последний план</span>
+                <strong id="tinyPlanTitle">—</strong>
+                <small id="tinyPlanMeta">—</small>
+              </div>
+              <div class="status-box">
+                <span>Режим адаптера</span>
+                <strong id="tinyMode">—</strong>
+                <small id="tinyModeMeta">dry-run по умолчанию</small>
+              </div>
+            </div>
+            <div class="tiny-grid">
+              <div>
+                <h3>План / сигналы</h3>
+                <pre id="tinyOutput" class="json-box">{}</pre>
+              </div>
+              <div>
+                <h3>Лог tiny-live</h3>
+                <pre id="tinyLogs" class="json-box">[]</pre>
+              </div>
+            </div>
+          </div>
+        </section>
       </section>
 
+      <section class="tab-panel" data-tab-panel="data" role="tabpanel" hidden>
+        <div class="grid data-grid">
+          <article class="panel compact control-panel">
+            <div class="section-head">
+              <div>
+                <h2>Подготовка данных</h2>
+                <p class="hint section-hint">Редкие и технические операции убраны с основного аналитического полотна в отдельную вкладку.</p>
+              </div>
+            </div>
+            <div class="stack">
+              <button id="loadDemoBtn" class="primary">Загрузить demo-данные</button>
+              <div class="grid two prep-grid">
+                <label class="picker-field">
+                  <span>Символы</span>
+                  <div id="demoPicker" class="multi-select"></div>
+                  <p class="hint" id="demoPickerHint">Каталог Bybit linear USDT, поиск по символу и монете, множественный выбор.</p>
+                </label>
+                <label><span>Дней</span><input id="demoDays" type="number" min="5" value="20" /></label>
+              </div>
+              <button id="syncBybitBtn">Синхронизировать Bybit Public</button>
+              <div class="grid two prep-grid">
+                <label class="picker-field">
+                  <span>Символы</span>
+                  <div id="syncPicker" class="multi-select"></div>
+                  <p class="hint" id="syncPickerHint">Каталог Bybit linear USDT, сортировка по 24h turnover.</p>
+                </label>
+                <label><span>Дней</span><input id="syncDays" type="number" min="1" value="14" /></label>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel compact control-panel">
+            <div class="section-head">
+              <div>
+                <h2>Импорт CSV</h2>
+                <p class="hint section-hint">Изолировано от research/live, чтобы импорт и синхронизация не мешали аналитике.</p>
+              </div>
+            </div>
+            <form id="csvForm" class="stack">
+              <div class="grid two prep-grid">
+                <label class="picker-field">
+                  <span>Символ</span>
+                  <input id="csvSymbol" name="symbol" type="hidden" value="BTCUSDT" />
+                  <div id="csvPicker" class="multi-select single-select"></div>
+                  <p class="hint" id="csvPickerHint">Каталог Bybit linear USDT, выбор одного символа для маркировки импортируемого CSV.</p>
+                </label>
+                <label><span>Интервал</span><input name="interval" required value="5" /></label>
+              </div>
+              <label><span>CSV</span><input name="file" type="file" accept=".csv" required /></label>
+              <button type="submit">Импортировать</button>
+              <p class="hint">Ожидаются колонки: timestamp, open, high, low, close, volume</p>
+            </form>
+          </article>
+        </div>
+      </section>
     </main>
   </div>
 

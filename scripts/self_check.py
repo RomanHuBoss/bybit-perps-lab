@@ -398,6 +398,21 @@ def main() -> None:
     assert any(preset['name'] == 'reversion_60d_auto' for preset in get_research_presets())
     print('auto research runner regression: OK')
 
+    template_html = (ROOT / 'templates' / 'index.html').read_text(encoding='utf-8')
+    app_js = (ROOT / 'static' / 'app.js').read_text(encoding='utf-8')
+    live_js = (ROOT / 'static' / 'live_ui.js').read_text(encoding='utf-8')
+    assert 'data-tab-target="research"' in template_html
+    assert 'data-tab-target="paper"' in template_html
+    assert 'data-tab-target="live"' in template_html
+    assert 'data-tab-target="data"' in template_html
+    assert 'id="tinyArm"' in template_html
+    assert 'Live / dry-run контур' in template_html
+    assert 'Paper replay' in template_html
+    assert 'function setActiveTab' in app_js
+    assert 'renderPaperMetrics' in app_js
+    assert 'syncArmState' in live_js
+    print('ui workspace separation regression: OK')
+
     print('ALL CHECKS PASSED')
 
 

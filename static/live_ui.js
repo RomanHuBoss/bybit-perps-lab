@@ -8,6 +8,7 @@
     buildPlanBtn: $('buildPlanBtn'),
     executeTinyBtn: $('executeTinyBtn'),
     refreshTinyLogsBtn: $('refreshTinyLogsBtn'),
+    tinyArm: $('tinyArm'),
     tinyPlanTitle: $('tinyPlanTitle'),
     tinyPlanMeta: $('tinyPlanMeta'),
     tinyMode: $('tinyMode'),
@@ -19,6 +20,13 @@
   if (!els.tinySymbol) return;
 
   let lastPlan = null;
+
+
+  function syncArmState() {
+    if (!els.executeTinyBtn) return;
+    const armed = Boolean(els.tinyArm?.checked);
+    els.executeTinyBtn.disabled = !armed;
+  }
 
   function parseNumber(raw, fallback = null) {
     if (typeof window.parseLocaleNumber === 'function') {
@@ -90,6 +98,7 @@
   }
 
   async function executePlan() {
+    if (!els.tinyArm?.checked) throw new Error('Сначала вооружите кнопку отправки');
     const symbol = els.tinySymbol.value.trim().toUpperCase();
     const notional = parseNumber(els.tinyNotional.value);
     const fresh = els.tinyFreshOnly.checked;
@@ -104,6 +113,8 @@
     lastPlan = payload.plan;
     showJson(els.tinyOutput, payload);
     note(`Ордер отправлен через адаптер. log_id=${payload.log_id}`, 'warn');
+    if (els.tinyArm) els.tinyArm.checked = false;
+    syncArmState();
     await refreshLogs();
     await refreshMode();
   }
@@ -117,7 +128,9 @@
   els.buildPlanBtn.addEventListener('click', () => buildPlan().catch((e) => note(e.message, 'error')));
   els.executeTinyBtn.addEventListener('click', () => executePlan().catch((e) => note(e.message, 'error')));
   els.refreshTinyLogsBtn.addEventListener('click', () => refreshLogs().catch((e) => note(e.message, 'error')));
+  els.tinyArm?.addEventListener('change', syncArmState);
 
+  syncArmState();
   refreshMode().catch(() => {});
   refreshLogs().catch(() => {});
 })();

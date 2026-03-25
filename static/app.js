@@ -14,9 +14,14 @@ const state = {
   config: {},
   viewMode: 'idle',
   pickers: {},
+  activeTab: localStorage.getItem('bybit-v4-active-tab') || 'research',
 };
 
 const els = {
+  tabButtons: Array.from(document.querySelectorAll('[data-tab-target]')),
+  tabPanels: Array.from(document.querySelectorAll('[data-tab-panel]')),
+  workspaceTitle: document.getElementById('workspaceTitle'),
+  workspaceSubtitle: document.getElementById('workspaceSubtitle'),
   loadDemoBtn: document.getElementById('loadDemoBtn'),
   syncBybitBtn: document.getElementById('syncBybitBtn'),
   refreshSymbolsBtn: document.getElementById('refreshSymbolsBtn'),
@@ -71,10 +76,15 @@ const els = {
   logBox: document.getElementById('logBox'),
   primaryTbody: document.getElementById('primaryTbody'),
   secondaryTbody: document.getElementById('secondaryTbody'),
+  paperTradesTbody: document.getElementById('paperTradesTbody'),
+  paperEventsTbody: document.getElementById('paperEventsTbody'),
+  paperRunBadge: document.getElementById('paperRunBadge'),
+  paperRunMeta: document.getElementById('paperRunMeta'),
   configForm: document.getElementById('configForm'),
   csvForm: document.getElementById('csvForm'),
   csvSymbol: document.getElementById('csvSymbol'),
   equityCanvas: document.getElementById('equityCanvas'),
+  paperEquityCanvas: document.getElementById('paperEquityCanvas'),
   paperStatus: document.getElementById('paperStatus'),
   paperMeta: document.getElementById('paperMeta'),
   liveStatus: document.getElementById('liveStatus'),
@@ -91,8 +101,56 @@ const els = {
   metricExpectancy: document.getElementById('metricExpectancy'),
   metricStopRate: document.getElementById('metricStopRate'),
   metricMode: document.getElementById('metricMode'),
+  paperMetricReturn: document.getElementById('paperMetricReturn'),
+  paperMetricProfitFactor: document.getElementById('paperMetricProfitFactor'),
+  paperMetricTrades: document.getElementById('paperMetricTrades'),
+  paperMetricAvgR: document.getElementById('paperMetricAvgR'),
   universeHint: document.getElementById('universeHint'),
 };
+
+const TAB_META = {
+  research: {
+    title: 'Research',
+    subtitle: 'Optimizer, auto research, ручной backtest / walk-forward и единый аналитический workspace для проверки гипотез.',
+  },
+  paper: {
+    title: 'Paper replay',
+    subtitle: 'Paper replay и разбор paper-результатов без смешивания с optimizer и live-контуром.',
+  },
+  live: {
+    title: 'Live / dry-run',
+    subtitle: 'Отдельный execution workspace: статус адаптера, план, подтверждение и dry-run / live лог.',
+  },
+  data: {
+    title: 'Data',
+    subtitle: 'Синхронизация, demo-генерация и импорт CSV вынесены в отдельную техническую вкладку.',
+  },
+};
+
+function setActiveTab(nextTab) {
+  const tab = TAB_META[nextTab] ? nextTab : 'research';
+  state.activeTab = tab;
+  localStorage.setItem('bybit-v4-active-tab', tab);
+  els.tabButtons.forEach((button) => {
+    const active = button.dataset.tabTarget === tab;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+  els.tabPanels.forEach((panel) => {
+    const active = panel.dataset.tabPanel === tab;
+    panel.toggleAttribute('hidden', !active);
+    panel.classList.toggle('active', active);
+  });
+  if (els.workspaceTitle) els.workspaceTitle.textContent = TAB_META[tab].title;
+  if (els.workspaceSubtitle) els.workspaceSubtitle.textContent = TAB_META[tab].subtitle;
+}
+
+function initTabs() {
+  els.tabButtons.forEach((button) => {
+    button.addEventListener('click', () => setActiveTab(button.dataset.tabTarget || 'research'));
+  });
+  setActiveTab(state.activeTab);
+}
 
 function log(message, type = 'info') {
   const div = document.createElement('div');
@@ -556,6 +614,7 @@ function renderResearchRun(manifest) {
   els.runBadge.textContent = `Research ${manifest.research_run_id}`;
   state.viewMode = 'research';
   setResearchStatus(manifest.plan_label || manifest.plan_name, `winner: ${winner.stage_name || '—'} / ret=${formatNum(winner.total_return_pct, 2)}% / PF=${winner.profit_factor ?? '—'}`);
+  setActiveTab('research');
 }
 
 async function loadResearchPresets() {
@@ -573,6 +632,7 @@ async function loadLatestResearch() {
   }
   const details = await api(`/api/research-runs/${run.research_run_id}`);
   renderResearchRun(details);
+  setActiveTab('research');
 }
 
 function renderSymbols() {
@@ -607,8 +667,15 @@ function renderMetrics(summary = {}, mode = '—') {
   els.metricMode.textContent = mode;
 }
 
-function drawEquityCurve(points) {
-  const canvas = els.equityCanvas;
+function renderPaperMetrics(summary = {}) {
+  if (els.paperMetricReturn) els.paperMetricReturn.textContent = `${formatNum(summary.total_return_pct)}%`;
+  if (els.paperMetricProfitFactor) els.paperMetricProfitFactor.textContent = String(summary.profit_factor ?? '—');
+  if (els.paperMetricTrades) els.paperMetricTrades.textContent = String(summary.trades_count ?? '—');
+  if (els.paperMetricAvgR) els.paperMetricAvgR.textContent = formatNum(summary.avg_r, 3);
+}
+
+function drawCurveOnCanvas(canvas, points, emptyLabel = 'Нет данных equity curve') {
+  if (!canvas) return;
   const ctx = canvas.getContext('2d');
   const width = canvas.width;
   const height = canvas.height;
@@ -619,7 +686,7 @@ function drawEquityCurve(points) {
   if (!points || points.length < 2) {
     ctx.fillStyle = '#91a0c2';
     ctx.font = '16px Arial';
-    ctx.fillText('Нет данных equity curve', 32, 48);
+    ctx.fillText(emptyLabel, 32, 48);
     return;
   }
 
@@ -658,8 +725,17 @@ function drawEquityCurve(points) {
   ctx.fillText(formatNum(minVal), 10, height - padding + 4);
 }
 
+function drawEquityCurve(points) {
+  drawCurveOnCanvas(els.equityCanvas, points, 'Нет данных equity curve');
+}
+
+function drawPaperEquityCurve(points) {
+  drawCurveOnCanvas(els.paperEquityCanvas, points, 'Нет данных paper equity');
+}
+
 function setPrimaryHeader(labels) {
-  const headerCells = document.querySelectorAll('.bottom-grid .table-panel:first-child table thead tr th');
+  const table = els.primaryTbody?.closest('table');
+  const headerCells = table ? table.querySelectorAll('thead tr th') : [];
   labels.forEach((label, idx) => {
     if (headerCells[idx]) headerCells[idx].textContent = label;
   });
@@ -728,8 +804,8 @@ function renderOptimizerTrials(trials = []) {
 }
 
 function renderPaperTrades(trades = []) {
-  setPrimaryHeader(['Symbol', 'Regime', 'Side', 'Entry', 'Exit', 'Net PnL', 'R', 'Reason']);
-  els.primaryTbody.innerHTML = '';
+  if (!els.paperTradesTbody) return;
+  els.paperTradesTbody.innerHTML = '';
   trades.forEach((trade) => {
     const payload = trade.raw_json ? JSON.parse(trade.raw_json) : trade;
     const tr = document.createElement('tr');
@@ -744,7 +820,21 @@ function renderPaperTrades(trades = []) {
       <td>${formatNum(trade.r_multiple, 2)}</td>
       <td>${trade.exit_reason}</td>
     `;
-    els.primaryTbody.appendChild(tr);
+    els.paperTradesTbody.appendChild(tr);
+  });
+}
+
+function renderPaperEvents(rows = []) {
+  if (!els.paperEventsTbody) return;
+  els.paperEventsTbody.innerHTML = '';
+  rows.forEach((row) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${new Date(row.created_at).toLocaleString()}</td>
+      <td>${row.level}</td>
+      <td>${row.message}</td>
+    `;
+    els.paperEventsTbody.appendChild(tr);
   });
 }
 
@@ -848,6 +938,7 @@ async function loadLatestRun() {
   renderSecondaryRows(details.signals.map((s) => ({ created_at: s.ts, level: s.side, message: `${s.symbol} ${s.regime} ${formatNum(s.score, 3)} ${s.notes || ''}` })), 'events');
   els.runBadge.textContent = `Backtest #${run.id}`;
   state.viewMode = 'backtest';
+  setActiveTab('research');
 }
 
 async function loadLatestWalkforward() {
@@ -889,6 +980,7 @@ async function loadLatestWalkforward() {
   els.runBadge.textContent = `Walk-forward #${run.id}`;
   renderSecondaryRows(details.segments.map((seg) => ({ created_at: seg.test_end_ts, level: `segment ${seg.segment_no}`, message: seg.best_params_json })), 'events');
   state.viewMode = 'walk-forward';
+  setActiveTab('research');
 }
 
 
@@ -912,6 +1004,7 @@ async function loadLatestOptimizer() {
   })), 'events');
   els.runBadge.textContent = `Optimizer #${run.id}`;
   state.viewMode = 'optimizer';
+  setActiveTab('research');
 }
 
 async function loadPaperSession(sessionId = state.latestPaperSessionId) {
@@ -943,17 +1036,20 @@ async function loadPaperSession(sessionId = state.latestPaperSessionId) {
     expectancy_pct: 0,
     stop_rate: 0,
   };
-  renderMetrics(summary, 'paper');
-  drawEquityCurve(data.equity);
+  renderPaperMetrics(summary);
+  drawPaperEquityCurve(data.equity);
   renderPaperTrades(data.trades);
-  renderSecondaryRows(data.events, 'events');
-  els.runBadge.textContent = `Paper #${session.id}`;
+  renderPaperEvents(data.events || []);
+  if (els.paperRunBadge) els.paperRunBadge.textContent = `Paper #${session.id}`;
+  if (els.paperRunMeta) els.paperRunMeta.textContent = `return=${formatNum(summary.total_return_pct, 2)}% / PF=${summary.profit_factor ?? '—'} / trades=${summary.trades_count ?? '—'}`;
   state.viewMode = 'paper';
+  setActiveTab('paper');
   return data;
 }
 
 els.loadDemoBtn.addEventListener('click', async () => {
   try {
+    setActiveTab('data');
     const result = await runAsyncJob('Demo-данные', '/api/load-demo-data', { symbols: selectedPickerSymbols('demo'), days: readNumberInput(els.demoDays, { fallback: 20 }), interval: '5' });
     log(`Demo-данные: ${result.candles_upserted} свечей, funding ${result.funding_upserted}`, 'success');
     await refreshSymbols();
@@ -962,6 +1058,7 @@ els.loadDemoBtn.addEventListener('click', async () => {
 
 els.syncBybitBtn.addEventListener('click', async () => {
   try {
+    setActiveTab('data');
     const result = await runAsyncJob('Bybit sync', '/api/sync-bybit-public', { symbols: selectedPickerSymbols('sync'), days: readNumberInput(els.syncDays, { fallback: 14 }), interval: '5' });
     log(`Bybit sync: ${result.candles_upserted} свечей, funding ${result.funding_upserted}`, 'success');
     await refreshSymbols();
@@ -969,7 +1066,7 @@ els.syncBybitBtn.addEventListener('click', async () => {
 });
 
 els.refreshSymbolsBtn.addEventListener('click', async () => {
-  try { await refreshSymbols({ refreshCatalog: true }); log('Universe и каталог обновлены', 'success'); } catch (error) { log(error.message, 'error'); }
+  try { setActiveTab('data'); await refreshSymbols({ refreshCatalog: true }); log('Universe и каталог обновлены', 'success'); } catch (error) { log(error.message, 'error'); }
 });
 
 els.runBacktestBtn.addEventListener('click', async () => {
@@ -982,6 +1079,7 @@ els.runBacktestBtn.addEventListener('click', async () => {
     renderSecondaryRows(result.signals.slice(-100).reverse().map((s) => ({ created_at: s.ts, level: s.side, message: `${s.symbol} ${s.regime} ${formatNum(s.score, 3)} ${s.notes}` })), 'events');
     els.runBadge.textContent = `Backtest #${result.run_id}`;
     state.viewMode = 'backtest';
+    setActiveTab('research');
     log(`Backtest завершён: run #${result.run_id}, trades=${result.summary.trades_count}, signals=${result.signals_count}`, 'success');
   } catch (error) { log(error.message.split('\n')[0], 'error'); }
 });
@@ -996,6 +1094,7 @@ els.runWalkforwardBtn.addEventListener('click', async () => {
     renderSecondaryRows(result.segments.map((seg) => ({ created_at: seg.test_end_ts, level: `segment ${seg.segment_no}`, message: JSON.stringify(seg.best_params) })), 'events');
     els.runBadge.textContent = `Walk-forward #${result.walkforward_run_id}`;
     state.viewMode = 'walk-forward';
+    setActiveTab('research');
     log(`Walk-forward завершён: run #${result.walkforward_run_id}, segments=${result.segments.length}`, 'success');
   } catch (error) { log(error.message.split('\n')[0], 'error'); }
 });
@@ -1020,6 +1119,7 @@ els.runOptimizerBtn?.addEventListener('click', async () => {
     })), 'events');
     els.runBadge.textContent = `Optimizer #${result.optimizer_run_id}`;
     state.viewMode = 'optimizer';
+    setActiveTab('research');
     log(`Optimizer завершён: run #${result.optimizer_run_id}, лучший score=${formatNum(result.best_score, 3)}`, 'success');
   } catch (error) {
     log(error.message.split('\n')[0], 'error');
@@ -1053,6 +1153,7 @@ els.runResearchBtn?.addEventListener('click', async () => {
     const preset = selectedResearchPreset();
     if (!preset) throw new Error('Сначала выбери preset auto research');
     setResearchStatus('running', `${preset.label || preset.name} / ${symbol}`);
+    setActiveTab('research');
     const result = await runAsyncJob('Auto research', '/api/run-auto-research', {
       symbols: [symbol],
       preset_name: preset.name,
@@ -1093,6 +1194,7 @@ els.createPaperBtn.addEventListener('click', async () => {
     });
     state.latestPaperSessionId = result.session.id;
     await loadPaperSession(result.session.id);
+    setActiveTab('paper');
     log(`Создана paper-сессия #${result.session.id}`, 'success');
   } catch (error) { log(error.message, 'error'); }
 });
@@ -1192,6 +1294,7 @@ document.addEventListener('change', (event) => {
 els.csvForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   try {
+    setActiveTab('data');
     const result = await api('/api/import-csv', { method: 'POST', body: new FormData(els.csvForm) });
     log(`CSV импортирован: ${result.rows_inserted} свечей для ${result.symbol}`, 'success');
     await refreshSymbols();
@@ -1200,12 +1303,16 @@ els.csvForm.addEventListener('submit', async (event) => {
 
 (async function init() {
   try {
+    initTabs();
     initPickers();
+    drawEquityCurve([]);
+    drawPaperEquityCurve([]);
     await loadConfig();
     await loadResearchPresets();
     await refreshSymbols();
     await loadLiveStatus();
     await loadLatestRun();
+    setActiveTab(state.activeTab);
   } catch (error) {
     log(error.message, 'error');
   }
