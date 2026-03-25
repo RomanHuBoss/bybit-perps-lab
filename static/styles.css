@@ -44,6 +44,30 @@ input[type="text"], input[type="number"], input:not([type]), input[type="file"],
   color: var(--text);
 }
 
+select {
+  color-scheme: dark;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) calc(50% - 2px),
+    calc(100% - 12px) calc(50% - 2px);
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 30px;
+}
+
+select option {
+  background: var(--panel);
+  color: var(--text);
+}
+
+select option:disabled {
+  color: var(--muted);
+}
+
 .shell { display: grid; grid-template-columns: minmax(320px, 360px) minmax(0, 1fr); min-height: 100vh; width: 100%; }
 .sidebar {
   border-right: 1px solid var(--line);
