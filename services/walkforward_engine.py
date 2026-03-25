@@ -11,6 +11,9 @@ from services.data_service import load_candles, load_funding
 from services.simulator import simulate_market, SimulationHelpers
 
 
+HARD_REJECT_SCORE = -1_000_000_000.0
+
+
 class WalkForwardEngine:
     def __init__(self, settings: dict[str, Any]):
         self.settings = settings
@@ -54,6 +57,7 @@ class WalkForwardEngine:
             best_params = None
             best_objective = float('-inf')
             best_train_result = None
+            min_trades = int(self.settings.get('walkforward_min_trades_train', 6))
 
             for params in candidate_grid:
                 train_settings = dict(self.settings)
@@ -63,6 +67,8 @@ class WalkForwardEngine:
                     train_result = simulate_market(train_settings, train_candles, train_funding, symbols, starting_equity=carry_equity, trade_start_ts=train_start)
                 except Exception:
                     continue
+                if not self._passes_min_trades_filter(train_result['summary'], min_trades):
+                    continue
                 objective = self._score_train_result(train_result['summary'])
                 if objective > best_objective:
                     best_objective = objective
@@ -70,7 +76,10 @@ class WalkForwardEngine:
                     best_train_result = train_result
 
             if best_params is None or best_train_result is None:
-                break
+                raise ValueError(
+                    f'No walk-forward training candidate satisfied walkforward_min_trades_train={min_trades} '
+                    f'in segment {segment_no}. Reduce the threshold, widen the candidate grid, or load a longer history.'
+                )
 
             test_settings = dict(self.settings)
             test_settings.update(best_params)
@@ -158,7 +167,7 @@ class WalkForwardEngine:
             - stop_rate * 0.04
         )
         if trades < min_trades:
-            score -= (min_trades - trades) * 2.0
+            return HARD_REJECT_SCORE
         if total_return_pct <= 0.0:
             score -= 8.0 + abs(total_return_pct) * 1.5
         if profit_factor < 1.0:
@@ -168,6 +177,11 @@ class WalkForwardEngine:
         if expectancy_pct <= 0.0:
             score -= abs(expectancy_pct) * 16.0 + 2.0
         return score
+
+
+    @staticmethod
+    def _passes_min_trades_filter(summary: dict[str, Any], min_trades: int) -> bool:
+        return int(summary.get('trades_count', 0)) >= int(min_trades)
 
     @staticmethod
     def _validate_window_params(train_bars: int, test_bars: int, step_bars: int) -> None:

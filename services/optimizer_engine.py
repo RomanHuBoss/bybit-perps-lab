@@ -12,6 +12,9 @@ from services.data_service import load_candles, load_funding
 from services.simulator import SimulationHelpers, simulate_market
 
 
+HARD_REJECT_SCORE = -1_000_000_000.0
+
+
 @dataclass
 class ParamSpec:
     name: str
@@ -58,10 +61,12 @@ class OptimizerEngine:
         trial_results: list[dict[str, Any]] = []
         best_result: dict[str, Any] | None = None
         baseline = self._baseline_params()
+        min_trades = int(self.settings.get('optimizer_min_trades_test', 12))
 
         for trial_no in range(1, trials_count + 1):
             params = baseline if trial_no == 1 else self._sample_params(best_result['params'] if best_result else None, trial_no, trials_count)
             result = self._evaluate_params(params, candles, funding, symbols, all_times, train_bars, test_bars, step_bars, max_segments)
+            eligible = self._passes_min_trades_filter(result['summary'], min_trades)
             trial_results.append(
                 {
                     'trial_no': trial_no,
@@ -70,16 +75,24 @@ class OptimizerEngine:
                     'summary': result['summary'],
                     'segments': result['segments'],
                     'equity_curve': result['equity_curve'],
+                    'eligible': eligible,
+                    'rejection_reason': None if eligible else self._min_trades_rejection_reason(result['summary'], min_trades),
                 }
             )
-            if best_result is None or result['score'] > best_result['score']:
-                best_result = {'trial_no': trial_no, **result}
+            if eligible and (best_result is None or result['score'] > best_result['score']):
+                best_result = {'trial_no': trial_no, **result, 'eligible': True}
 
         if best_result is None:
-            raise ValueError('Optimizer failed to evaluate any candidate.')
+            raise ValueError(
+                f'No optimizer candidate satisfied optimizer_min_trades_test={min_trades}. '
+                'Reduce the minimum trades threshold, widen the search space, or load a longer history.'
+            )
 
         run_id = self._persist_run(symbols, trials_count, train_bars, test_bars, step_bars, max_segments, trial_results, best_result)
-        top_trials = [self._strip_trial_payload(t) for t in sorted(trial_results, key=lambda x: x['score'], reverse=True)[:30]]
+        top_trials = [
+            self._strip_trial_payload(t)
+            for t in sorted(trial_results, key=lambda x: (bool(x.get('eligible')), x['score']), reverse=True)[:30]
+        ]
         return {
             'optimizer_run_id': run_id,
             'best_params': best_result['params'],
@@ -223,7 +236,7 @@ class OptimizerEngine:
         )
 
         if trades < min_trades:
-            score -= (min_trades - trades) * 2.0
+            return HARD_REJECT_SCORE
         if total_return_pct <= 0.0:
             score -= 8.0 + abs(total_return_pct) * 1.5
         if pf < 1.0:
@@ -236,6 +249,17 @@ class OptimizerEngine:
             score -= (0.5 - positive_segment_ratio) * 8.0
 
         return score
+
+
+    @staticmethod
+    def _passes_min_trades_filter(summary: dict[str, Any], min_trades: int) -> bool:
+        return int(summary.get('trades_count', 0)) >= int(min_trades)
+
+    @staticmethod
+    def _min_trades_rejection_reason(summary: dict[str, Any], min_trades: int) -> str:
+        trades = int(summary.get('trades_count', 0))
+        shortfall = max(int(min_trades) - trades, 0)
+        return f'min_trades_hard_filter: trades_count={trades}, required={int(min_trades)}, shortfall={shortfall}'
 
     @staticmethod
     def _validate_window_params(train_bars: int, test_bars: int, step_bars: int) -> None:
@@ -250,6 +274,8 @@ class OptimizerEngine:
             'score': trial['score'],
             'params': trial['params'],
             'summary': trial['summary'],
+            'eligible': bool(trial.get('eligible', True)),
+            'rejection_reason': trial.get('rejection_reason'),
         }
 
     @staticmethod
@@ -277,6 +303,8 @@ class OptimizerEngine:
             'best_equity_curve': best_result['equity_curve'],
             'segments': best_result['segments'],
             'search_space': {spec.name: {'lower': spec.lower, 'upper': spec.upper, 'step': spec.step} for spec in PARAM_SPECS},
+            'min_trades_hard_filter': int(self.settings.get('optimizer_min_trades_test', 12)),
+            'eligible_trials_count': sum(1 for trial in trial_results if trial.get('eligible')),
         }
         with get_conn() as conn:
             cursor = conn.execute(
@@ -317,7 +345,11 @@ class OptimizerEngine:
                         trial['score'],
                         json.dumps(trial['params']),
                         json.dumps(trial['summary']),
-                        json.dumps({'segments_count': len(trial.get('segments', []))}),
+                        json.dumps({
+                            'segments_count': len(trial.get('segments', [])),
+                            'eligible': bool(trial.get('eligible', True)),
+                            'rejection_reason': trial.get('rejection_reason'),
+                        }),
                     )
                     for trial in trial_results
                 ],

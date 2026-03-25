@@ -232,6 +232,8 @@ def create_app() -> Flask:
             row = {
                 'trial_no': trial['trial_no'],
                 'score': trial['score'],
+                'eligible': trial.get('notes', {}).get('eligible', trial.get('eligible', True)),
+                'rejection_reason': trial.get('notes', {}).get('rejection_reason', trial.get('rejection_reason')),
                 **trial['summary'],
                 **trial['params'],
             }

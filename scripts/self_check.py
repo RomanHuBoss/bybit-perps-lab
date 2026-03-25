@@ -13,10 +13,11 @@ from app import app
 from database import ensure_database, get_settings
 from services import simulator as simulator_module
 from services import strategy_engine as strategy_module
+from services import walkforward_engine as walkforward_module
 from services.backtest_engine import BacktestEngine
 from services.data_service import generate_demo_market_data, load_candles, load_funding
 from services.indicators import prepare_symbol_features
-from services.optimizer_engine import OptimizerEngine
+from services.optimizer_engine import HARD_REJECT_SCORE as OPTIMIZER_HARD_REJECT_SCORE, OptimizerEngine
 from services.paper_engine import PaperTradingManager, SessionRuntime, paper_manager
 from services.simulator import Position, PreparedMarket, SimulationHelpers, simulate_market
 from services.trade_service import _round_stop_price, _round_take_profit_price
@@ -197,7 +198,20 @@ def main() -> None:
         'stop_rate': 65.5,
         'trades_count': 32,
     }
+    low_trade_but_profitable = {
+        'total_return_pct': 0.9,
+        'profit_factor': 1.8,
+        'avg_r': 0.4,
+        'expectancy_pct': 0.08,
+        'win_rate': 70.0,
+        'max_drawdown_pct': -0.3,
+        'stop_rate': 20.0,
+        'trades_count': 5,
+    }
     assert optimizer_probe._objective(profitable_summary) > optimizer_probe._objective(cosmetically_good_loser)
+    assert optimizer_probe._objective(low_trade_but_profitable) == OPTIMIZER_HARD_REJECT_SCORE
+    assert optimizer_probe._passes_min_trades_filter(profitable_summary, 24) is True
+    assert optimizer_probe._passes_min_trades_filter(low_trade_but_profitable, 24) is False
     print('optimizer profitability-first objective regression: OK')
 
     try:
@@ -211,6 +225,71 @@ def main() -> None:
     except ValueError:
         pass
     print('window-overlap validation regression: OK')
+
+    hard_filter_optimizer = OptimizerEngine(settings | {'optimizer_min_trades_test': 50})
+    original_evaluate_params = hard_filter_optimizer._evaluate_params
+    original_persist_run = hard_filter_optimizer._persist_run
+    try:
+        def _fake_evaluate_params(params, candles, funding, symbols, all_times, train_bars, test_bars, step_bars, max_segments):
+            return {
+                'params': params,
+                'summary': {
+                    'trades_count': 4,
+                    'total_return_pct': 1.0,
+                    'profit_factor': 2.0,
+                    'avg_r': 0.5,
+                    'expectancy_pct': 0.05,
+                    'win_rate': 60.0,
+                    'max_drawdown_pct': -0.2,
+                    'stop_rate': 10.0,
+                    'starting_equity': 10000.0,
+                    'ending_equity': 10100.0,
+                    'sharpe': 1.0,
+                },
+                'score': 123.0,
+                'segments': [],
+                'equity_curve': [],
+                'trades': [],
+            }
+        hard_filter_optimizer._evaluate_params = _fake_evaluate_params
+        hard_filter_optimizer._persist_run = lambda *args, **kwargs: 0
+        try:
+            hard_filter_optimizer.run(['SOLUSDT'], trials=2)
+            raise AssertionError('optimizer hard min_trades filter failed')
+        except ValueError as exc:
+            assert 'optimizer_min_trades_test=50' in str(exc)
+    finally:
+        hard_filter_optimizer._evaluate_params = original_evaluate_params
+        hard_filter_optimizer._persist_run = original_persist_run
+    print('optimizer hard min-trades regression: OK')
+
+    original_walkforward_simulate_market = walkforward_module.simulate_market
+    try:
+        walkforward_module.simulate_market = lambda *args, **kwargs: {
+            'summary': {
+                'trades_count': 2,
+                'total_return_pct': 0.5,
+                'profit_factor': 1.5,
+                'avg_r': 0.2,
+                'expectancy_pct': 0.03,
+                'win_rate': 55.0,
+                'max_drawdown_pct': -0.2,
+                'stop_rate': 10.0,
+                'starting_equity': 10000.0,
+                'ending_equity': 10050.0,
+                'sharpe': 1.0,
+            },
+            'trades': [],
+            'equity_curve': [],
+        }
+        try:
+            WalkForwardEngine(settings | {'walkforward_min_trades_train': 10, 'walkforward_train_bars': 1000, 'walkforward_test_bars': 600, 'walkforward_step_bars': 600, 'walkforward_max_segments': 1}).run(['BTCUSDT'])
+            raise AssertionError('walk-forward hard min_trades filter failed')
+        except ValueError as exc:
+            assert 'walkforward_min_trades_train=10' in str(exc)
+    finally:
+        walkforward_module.simulate_market = original_walkforward_simulate_market
+    print('walk-forward hard min-trades regression: OK')
 
     ts = pd.Timestamp('2026-01-01T00:00:00Z')
     dummy_bars = pd.DataFrame([{'ts': ts, 'symbol': 'BTCUSDT', 'open': 100.0, 'high': 100.0, 'low': 100.0, 'close': 100.0, 'volume': 1.0}])
